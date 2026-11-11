@@ -1,0 +1,60 @@
+{
+  "name": "budget-integration-platform",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev:api": "tsx apps/api/src/main.ts",
+    "dev:worker": "tsx apps/worker/src/main.ts",
+    "dev:property": "tsx apps/property-service/src/main.ts",
+    "dev:budget": "tsx apps/budget-service/src/main.ts",
+    "dev:rent-details": "tsx apps/rent-details-service/src/main.ts",
+    "dev:services": "concurrently -n property,budget,rent -c cyan,green,magenta \"npm run dev:property\" \"npm run dev:budget\" \"npm run dev:rent-details\"",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:reload:property": "pm2 reload ecosystem.config.cjs --only property-service",
+    "pm2:reload:budget": "pm2 reload ecosystem.config.cjs --only budget-service",
+    "pm2:reload:rent-details": "pm2 reload ecosystem.config.cjs --only rent-details-service",
+    "pm2:status": "pm2 status",
+    "dev:typecheck": "tsc --noEmit",
+    "dev:build": "tsc",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts",
+    "schema": "./prisma/schema"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "private": "true",
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "concurrently": "^10.0.3",
+    "dotenv": "^17.4.2",
+    "prisma": "6.6.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.23",
+    "@nestjs/core": "^11.1.23",
+    "@nestjs/platform-express": "^11.1.23",
+    "@nestjs/swagger": "^11.4.6",
+    "@prisma/client": "6.6.0",
+    "argon2": "^0.41.1",
+    "axios": "^1.16.0",
+    "pg-boss": "^12.35.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "packages/connectors/*"
+  ]
+}

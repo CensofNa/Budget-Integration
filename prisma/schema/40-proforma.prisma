@@ -1,0 +1,350 @@
+model ProformaScenario {
+  id             String  @id @default(uuid()) @db.Uuid
+  companyId      String  @map("company_id") @db.Uuid
+  organisationId String  @map("organisation_id") @db.Uuid
+  propertyId     String? @map("property_id") @db.Uuid
+
+  scenarioName String             @map("scenario_name") @db.VarChar(255)
+  status       ProformaStatus     @default(DRAFT)
+  currentStep  ProformaWizardStep @default(INITIATE) @map("current_step")
+
+  propertyName String                @map("property_name") @db.VarChar(255)
+  address      String?               @db.VarChar(500)
+  submarket    String?               @db.VarChar(255)
+  startMonth   String                @map("start_month") @db.VarChar(20)
+  startYear    Int                   @map("start_year")
+  duration     Int                   @default(12)
+  businessType ProformaBusinessType? @map("business_type")
+  assignedLead String?               @map("assigned_lead") @db.VarChar(255)
+
+  yearBuilt        Int?    @map("year_built")
+  propertyClass    String? @map("property_class") @db.VarChar(100)
+  initialOccupancy Decimal @default(0) @map("initial_occupancy") @db.Decimal(6, 2)
+  moveinPerMonth   Decimal @default(0) @map("movein_per_month") @db.Decimal(10, 2)
+  moveoutPerMonth  Decimal @default(0) @map("moveout_per_month") @db.Decimal(10, 2)
+
+  createdBy String?  @map("created_by") @db.VarChar(100)
+  updatedBy String?  @map("updated_by") @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation Organisation @relation("OrganisationProformaScenarios", fields: [organisationId], references: [id])
+  property     Property?    @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  unit            ProformaUnit[]
+  assumptions     ProformaAssumptions?
+  resultSnapshots ProformaResultSnapshot[]
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([companyId, organisationId, status])
+  @@index([propertyId])
+  @@map("proforma_scenarios")
+}
+
+model ProformaUnit {
+  id                 String @id @default(uuid()) @db.Uuid
+  proformaScenarioId String @map("proforma_scenario_id") @db.Uuid
+
+  bedrooms   String  @db.VarChar(50)
+  count      Int     @default(0)
+  marketRent Decimal @default(0) @map("market_rent") @db.Decimal(10, 2)
+  avgSqft    Int     @default(0) @map("avg_sqft")
+  sortOrder  Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  scenario ProformaScenario @relation(fields: [proformaScenarioId], references: [id], onDelete: Cascade)
+
+  @@index([proformaScenarioId])
+  @@map("proforma_unit")
+}
+
+model ProformaAssumptions {
+  id                 String                @id @default(uuid()) @db.Uuid
+  proformaScenarioId String                @unique @map("proforma_scenario_id") @db.Uuid
+  scenarioMode       ProformaScenarioMode? @map("scenario_mode")
+
+  vacancy              Decimal @default(0) @db.Decimal(6, 2)
+  concessions          Decimal @default(0) @db.Decimal(6, 2)
+  badDebt              Decimal @default(0) @map("bad_debt") @db.Decimal(6, 2)
+  otherIncome          Decimal @default(0) @map("other_income") @db.Decimal(10, 2)
+  mgmtFee              Decimal @default(0) @map("mgmt_fee") @db.Decimal(6, 2)
+  payrollPerUnit       Decimal @default(0) @map("payroll_per_unit") @db.Decimal(10, 2)
+  opexExPayrollPerUnit Decimal @default(0) @map("opex_ex_payroll_per_unit") @db.Decimal(10, 2)
+  reserves             Decimal @default(0) @db.Decimal(10, 2)
+  rentGrowth           Decimal @default(0) @map("rent_growth") @db.Decimal(6, 2)
+  expenseInflation     Decimal @default(0) @map("expense_inflation") @db.Decimal(6, 2)
+  staffRatio           Decimal @default(0) @map("staff_ratio") @db.Decimal(10, 2)
+
+  comparablePropertyId String? @map("comparable_property_id") @db.Uuid
+  t12FileName          String? @map("t12_file_name") @db.VarChar(255)
+  t12PeriodLabel       String? @map("t12_period_label") @db.VarChar(100)
+  t12RawParsedPayload  Json?   @map("t12_raw_parsed_payload")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  scenario           ProformaScenario            @relation(fields: [proformaScenarioId], references: [id], onDelete: Cascade)
+  comparableProperty ProformaComparableProperty? @relation(fields: [comparablePropertyId], references: [id], onDelete: SetNull)
+  t12LineItems       ProformaT12LineItem[]
+
+  @@index([comparablePropertyId])
+  @@map("proforma_assumptions")
+}
+
+model ProformaT12LineItem {
+  id                    String @id @default(uuid()) @db.Uuid
+  proformaAssumptionsId String @map("proforma_assumptions_id") @db.Uuid
+
+  section        ProformaT12Section
+  label          String             @db.VarChar(255)
+  category       String?            @db.VarChar(100)
+  fullYearAmount Decimal?           @map("full_year_amount") @db.Decimal(14, 2)
+  sortOrder      Int                @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  assumptions    ProformaAssumptions        @relation(fields: [proformaAssumptionsId], references: [id], onDelete: Cascade)
+  monthlyAmounts ProformaT12MonthlyAmount[]
+
+  @@index([proformaAssumptionsId])
+  @@map("proforma_t12_line_items")
+}
+
+model ProformaT12MonthlyAmount {
+  id            String @id @default(uuid()) @db.Uuid
+  t12LineItemId String @map("t12_line_item_id") @db.Uuid
+
+  periodLabel String  @map("period_label") @db.VarChar(20)
+  monthIndex  Int     @map("month_index")
+  amount      Decimal @db.Decimal(14, 2)
+
+  lineItem ProformaT12LineItem @relation(fields: [t12LineItemId], references: [id], onDelete: Cascade)
+
+  @@unique([t12LineItemId, monthIndex])
+  @@map("proforma_t12_monthly_amounts")
+}
+
+model ProformaComparableProperty {
+  id             String @id @default(uuid()) @db.Uuid
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+
+  name          String  @db.VarChar(255)
+  submarket     String? @db.VarChar(255)
+  units         Int     @default(0)
+  propertyClass String? @map("property_class") @db.VarChar(100)
+
+  vacancy              Decimal @default(0) @db.Decimal(6, 2)
+  concessions          Decimal @default(0) @db.Decimal(6, 2)
+  badDebt              Decimal @default(0) @map("bad_debt") @db.Decimal(6, 2)
+  otherIncome          Decimal @default(0) @map("other_income") @db.Decimal(10, 2)
+  mgmtFee              Decimal @default(0) @map("mgmt_fee") @db.Decimal(6, 2)
+  payrollPerUnit       Decimal @default(0) @map("payroll_per_unit") @db.Decimal(10, 2)
+  opexExPayrollPerUnit Decimal @default(0) @map("opex_ex_payroll_per_unit") @db.Decimal(10, 2)
+  reserves             Decimal @default(0) @db.Decimal(10, 2)
+  rentGrowth           Decimal @default(0) @map("rent_growth") @db.Decimal(6, 2)
+  expenseInflation     Decimal @default(0) @map("expense_inflation") @db.Decimal(6, 2)
+  staffRatio           Decimal @default(0) @map("staff_ratio") @db.Decimal(10, 2)
+
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") @db.VarChar(100)
+  updatedBy String?  @map("updated_by") @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company           Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation      Organisation          @relation("OrganisationProformaComparables", fields: [organisationId], references: [id])
+  usedByAssumptions ProformaAssumptions[]
+
+  @@index([companyId, organisationId])
+  @@index([companyId, organisationId, isActive])
+  @@map("proforma_comparable_properties")
+}
+
+model ProformaResultSnapshot {
+  id                 String @id @default(uuid()) @db.Uuid
+  proformaScenarioId String @map("proforma_scenario_id") @db.Uuid
+
+  annualGpr            Decimal @map("annual_gpr") @db.Decimal(18, 2)
+  vacancy              Decimal @db.Decimal(18, 2)
+  concessions          Decimal @db.Decimal(18, 2)
+  badDebt              Decimal @map("bad_debt") @db.Decimal(18, 2)
+  otherIncome          Decimal @map("other_income") @db.Decimal(18, 2)
+  egi                  Decimal @db.Decimal(18, 2)
+  mgmt                 Decimal @db.Decimal(18, 2)
+  payroll              Decimal @db.Decimal(18, 2)
+  opexExPayroll        Decimal @map("opex_ex_payroll") @db.Decimal(18, 2)
+  totalOpex            Decimal @map("total_opex") @db.Decimal(18, 2)
+  noi                  Decimal @db.Decimal(18, 2)
+  reserves             Decimal @db.Decimal(18, 2)
+  cashflow             Decimal @db.Decimal(18, 2)
+  units                Int
+  fteCount             Decimal @map("fte_count") @db.Decimal(10, 2)
+  occupancyByMonth     Json    @map("occupancy_by_month")
+  effectiveVacancyRate Decimal @map("effective_vacancy_rate") @db.Decimal(6, 2)
+  avgOccupancy         Decimal @map("avg_occupancy") @db.Decimal(6, 4)
+
+  reason    String   @db.VarChar(30)
+  createdBy String?  @map("created_by") @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  scenario ProformaScenario @relation(fields: [proformaScenarioId], references: [id], onDelete: Cascade)
+
+  @@index([proformaScenarioId, createdAt])
+  @@map("proforma_result_snapshots")
+}
+
+model ProformaDriver {
+  id             String  @id @default(uuid()) @db.Uuid
+  companyId      String  @map("company_id") @db.Uuid
+  organisationId String  @map("organisation_id") @db.Uuid
+  propertyId     String? @map("property_id") @db.Uuid
+
+  driverName  String  @map("driver_name") @db.VarChar(255)
+  description String? @db.VarChar(500)
+  isDefault   Boolean @default(false) @map("is_default")
+
+  // Income Drivers
+  concession        Decimal @default(0) @db.Decimal(10, 2)
+  appFee            Decimal @default(0) @map("app_fee") @db.Decimal(10, 2)
+  adminFee          Decimal @default(0) @map("admin_fee") @db.Decimal(10, 2)
+  petFee            Decimal @default(0) @map("pet_fee") @db.Decimal(10, 2)
+  petRent           Decimal @default(0) @map("pet_rent") @db.Decimal(10, 2)
+  petOcc            Decimal @default(0) @map("pet_occ") @db.Decimal(6, 4)
+  trashFee          Decimal @default(0) @map("trash_fee") @db.Decimal(10, 2)
+  waterBill         Decimal @default(0) @map("water_bill") @db.Decimal(10, 2)
+  amenityFee        Decimal @default(0) @map("amenity_fee") @db.Decimal(10, 2)
+  cableInternet     Decimal @default(0) @map("cable_internet") @db.Decimal(10, 2)
+  smartHome         Decimal @default(0) @map("smart_home") @db.Decimal(10, 2)
+  storageRent       Decimal @default(0) @map("storage_rent") @db.Decimal(10, 2)
+  garageRent        Decimal @default(0) @map("garage_rent") @db.Decimal(10, 2)
+  residentLiability Decimal @default(0) @map("resident_liability") @db.Decimal(10, 2)
+  gasIncome         Decimal @default(0) @map("gas_income") @db.Decimal(10, 2)
+  electricIncome    Decimal @default(0) @map("electric_income") @db.Decimal(10, 2)
+  utilityBillingFee Decimal @default(0) @map("utility_billing_fee") @db.Decimal(10, 2)
+  redec             Decimal @default(0) @db.Decimal(10, 2)
+  carpetClean       Decimal @default(0) @map("carpet_clean") @db.Decimal(10, 2)
+  clean             Decimal @default(0) @db.Decimal(10, 2)
+  paint             Decimal @default(0) @db.Decimal(10, 2)
+  pestControlInc    Decimal @default(0) @map("pest_control_inc") @db.Decimal(10, 2)
+  pestControlExp    Decimal @default(0) @map("pest_control_exp") @db.Decimal(10, 2)
+  mgmtFeePct        Decimal @default(0) @map("mgmt_fee_pct") @db.Decimal(6, 4)
+  mgmtFeeMin        Decimal @default(0) @map("mgmt_fee_min") @db.Decimal(10, 2)
+  occPct            Decimal @default(0) @map("occ_pct") @db.Decimal(6, 4)
+  renewalInc        Decimal @default(0) @map("renewal_inc") @db.Decimal(10, 2)
+  newLeaseInc       Decimal @default(0) @map("new_lease_inc") @db.Decimal(10, 2)
+  renewalRatio      Decimal @default(0) @map("renewal_ratio") @db.Decimal(6, 4)
+  moveinPerMonth    Decimal @default(0) @map("movein_per_month") @db.Decimal(10, 2)
+  moveoutPerMonth   Decimal @default(0) @map("moveout_per_month") @db.Decimal(10, 2)
+
+  // Staffing Drivers
+  staffCD          Decimal @default(0) @map("staff_cd") @db.Decimal(10, 2)
+  staffACD         Decimal @default(0) @map("staff_acd") @db.Decimal(10, 2)
+  staffMR          Decimal @default(0) @map("staff_mr") @db.Decimal(10, 2)
+  staffConcierge   Decimal @default(0) @map("staff_concierge") @db.Decimal(10, 2)
+  staffSD          Decimal @default(0) @map("staff_sd") @db.Decimal(10, 2)
+  staffTech        Decimal @default(0) @map("staff_tech") @db.Decimal(10, 2)
+  staffGrounds     Decimal @default(0) @map("staff_grounds") @db.Decimal(10, 2)
+  staffHousekeeper Decimal @default(0) @map("staff_housekeeper") @db.Decimal(10, 2)
+  staffInsCount    Int     @default(0) @map("staff_ins_count")
+  staffInsCost     Decimal @default(0) @map("staff_ins_cost") @db.Decimal(10, 2)
+
+  createdBy String?  @map("created_by") @db.VarChar(100)
+  updatedBy String?  @map("updated_by") @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation Organisation @relation("OrganisationProformaDrivers", fields: [organisationId], references: [id])
+  property     Property?    @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, organisationId])
+  @@index([propertyId])
+  @@map("proforma_drivers")
+}
+
+model ProformaGlobalAssumption {
+  id             String  @id @default(uuid()) @db.Uuid
+  companyId      String  @map("company_id") @db.Uuid
+  organisationId String  @map("organisation_id") @db.Uuid
+  propertyId     String? @map("property_id") @db.Uuid
+
+  profileName String  @map("profile_name") @db.VarChar(255)
+  description String? @db.VarChar(500)
+  isDefault   Boolean @default(false) @map("is_default")
+
+  // Macro Assumptions
+  vacancy              Decimal @default(0) @db.Decimal(6, 2)
+  concessions          Decimal @default(0) @db.Decimal(6, 2)
+  badDebt              Decimal @default(0) @map("bad_debt") @db.Decimal(6, 2)
+  otherIncome          Decimal @default(0) @map("other_income") @db.Decimal(10, 2)
+  mgmtFee              Decimal @default(0) @map("mgmt_fee") @db.Decimal(6, 2)
+  payrollPerUnit       Decimal @default(0) @map("payroll_per_unit") @db.Decimal(10, 2)
+  opexExPayrollPerUnit Decimal @default(0) @map("opex_ex_payroll_per_unit") @db.Decimal(10, 2)
+  reserves             Decimal @default(0) @db.Decimal(10, 2)
+  rentGrowth           Decimal @default(0) @map("rent_growth") @db.Decimal(6, 2)
+  expenseInflation     Decimal @default(0) @map("expense_inflation") @db.Decimal(6, 2)
+  staffRatio           Decimal @default(0) @map("staff_ratio") @db.Decimal(10, 2)
+
+  createdBy String?  @map("created_by") @db.VarChar(100)
+  updatedBy String?  @map("updated_by") @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation Organisation @relation("OrganisationProformaGlobalAssumptions", fields: [organisationId], references: [id])
+  property     Property?    @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, organisationId])
+  @@index([propertyId])
+  @@map("proforma_global_assumptions")
+}
+
+model ProformaCoaGlobalAssumption {
+  id                   String                                        @id @default(uuid()) @db.Uuid
+  companyId            String                                        @map("company_id") @db.Uuid
+  organisationId       String                                        @map("organisation_id") @db.Uuid
+  coaAccountId         String                                        @map("coa_account_id") @db.Uuid
+  description          String                                        @map("description") @db.VarChar(250)
+  method               GlobalAssumptionMethod
+  amount               Decimal                                       @db.Decimal(18, 5)
+  setupFeePerMonth     Decimal                                       @map("setup_fee_per_month") @db.Decimal(18, 5)
+  amountPostingMonth   Int?                                          @map("amount_posting_month")
+  setupFeePostingMonth Int?                                          @map("setup_fee_posting_month")
+  updatedBy            String?                                       @map("updated_by") @db.VarChar(100)
+  createdAt            DateTime                                      @default(now()) @map("created_at")
+  updatedAt            DateTime                                      @updatedAt @map("updated_at")
+  company              Company                                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation         Organisation                                  @relation("OrganisationProformaCoaGlobalAssumptions", fields: [organisationId], references: [id])
+  coaAccount           CoaAccount                                    @relation(fields: [coaAccountId], references: [id])
+  excludedProperties   ProformaCoaGlobalAssumptionExcludedProperty[]
+
+  @@index([companyId])
+  @@index([coaAccountId])
+  @@index([organisationId])
+  @@map("proforma_coa_global_assumptions")
+}
+
+model ProformaCoaGlobalAssumptionExcludedProperty {
+  id                            String                      @id @default(uuid()) @db.Uuid
+  companyId                     String                      @map("company_id") @db.Uuid
+  organisationId                String                      @map("organisation_id") @db.Uuid
+  proformaCoaGlobalAssumptionId String                      @map("proforma_coa_global_assumption_id") @db.Uuid
+  propertyId                    String                      @map("property_id") @db.Uuid
+  propertyCode                  String?                     @map("property_code") @db.VarChar(100)
+  propertyName                  String?                     @map("property_name") @db.VarChar(255)
+  createdAt                     DateTime                    @default(now()) @map("created_at")
+  updatedAt                     DateTime                    @updatedAt @map("updated_at")
+  proformaCoaGlobalAssumption   ProformaCoaGlobalAssumption @relation(fields: [proformaCoaGlobalAssumptionId], references: [id], onDelete: Cascade)
+  property                      Property                    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([proformaCoaGlobalAssumptionId, propertyId], name: "proformaCoaGaExcl_gaId_propId")
+  @@index([propertyId])
+  @@index([companyId, organisationId])
+  @@map("proforma_coa_global_assumption_excluded_properties")
+}

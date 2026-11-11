@@ -1,0 +1,227 @@
+enum UserPrincipalType {
+  PLATFORM
+  COMPANY
+  ORGANISATION
+}
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  INACTIVE
+  LOCKED
+  DELETED
+}
+
+enum AuthProvider {
+  LOCAL
+  MICROSOFT_ENTRA
+}
+
+enum OtpPurpose {
+  LOGIN_2FA
+  PASSWORD_RESET
+  EMAIL_VERIFICATION
+  INVITE_ACCEPTANCE
+}
+
+enum OtpChannel {
+  EMAIL
+  SMS
+  AUTH_APP
+}
+
+enum ScopeType {
+  PLATFORM
+  COMPANY
+  ORGANISATION
+  PROPERTY
+}
+
+enum AssignmentStatus {
+  ACTIVE
+  DRAFT
+  REVOKED
+}
+
+enum AccessStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum OnboardingStatus {
+  DRAFT
+  CONFIGURED
+  ACTIVE
+  SUSPENDED
+}
+
+enum EntityType {
+  LEGAL_ENTITY
+  GROUPING
+}
+
+enum EntityTypeDetail {
+  LLC
+  LLP
+  CORPORATION
+  PARTNERSHIP
+  TRUST
+  OTHER
+}
+
+enum OrganisationKind {
+  ROOT
+  OPERATIONAL
+}
+
+enum OrganisationStatus {
+  SETUP
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum LicenseStatus {
+  DRAFT
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+}
+
+enum LicenseDurationUnit {
+  DAYS
+  MONTHS
+  YEARS
+}
+
+enum PropertyStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum PropertyOperatingType {
+  OPERATIONAL
+  LEASE_UP
+  OVERTAKEN
+}
+
+enum PropertyBudgetYearType {
+  CALENDAR_YEAR
+  FISCAL_YEAR
+}
+
+enum WorkflowStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum WorkflowStepType {
+  PREPARER
+  REVIEWER
+  APPROVER
+  OBSERVER
+  CUSTOM
+}
+
+enum PropertyWorkflowCommentAction {
+  APPROVE
+  SEND_BACK
+}
+
+enum RefreshSessionRevokeReason {
+  ROTATED
+  LOGOUT
+  LOGOUT_ALL
+  PASSWORD_RESET
+  PASSWORD_CHANGE
+  ADMIN_REVOKED
+}
+
+enum IntegrationProvider {
+  ENTRATA
+}
+
+enum GlobalAssumptionMethod {
+  PER_PROPERTY_PER_WEEK
+  PER_PROPERTY_PER_MONTH
+  PER_PROPERTY_PER_YEAR
+  PER_OCCUPIED_UNIT_PER_MONTH
+  PER_PROPERTY_IN_PARTICULAR_MONTH
+  PER_UNIT_PER_MONTH
+  PER_UNIT_PER_YEAR
+  PER_APPLICATION_TIMES_2
+  PER_EMPLOYEE_PER_MONTH
+  INPUT_LINE
+}
+
+enum PayrollSalaryType {
+  SINGLE
+  SPLIT
+  FULL_TIME
+  PART_TIME
+}
+
+enum PayrollSalaryMeasureCode {
+  SALARY_PER_HOUR
+  SALARY
+  OT_PAY
+  BONUS
+  EMPLOYEE_UNIT
+  TOTAL_SALARY
+  OVERALL_SALARY
+}
+
+enum PayrollCalculationMethod {
+  MANUAL
+  MANUAL_NO_CALC
+  EVENLY
+  REPEAT
+  STRAIGHT_LINE_GROWTH
+  COMPOUNDED_GROWTH
+  PERCENT_YEARLY
+  PERCENT_QUARTERLY
+}
+
+enum CoaAmountSign {
+  POSITIVE
+  NEGATIVE
+  BOTH
+}
+
+enum ProformaBusinessType {
+  ACQUISITION
+  REFINANCING
+  CONSTRUCTION
+  LEASE_UP
+  REHAB
+  STABILIZED
+}
+
+enum ProformaStatus {
+  DRAFT
+  FINAL
+}
+
+enum ProformaScenarioMode {
+  STANDARD
+  COMPARABLE
+  T12
+  CUSTOM
+}
+
+enum ProformaWizardStep {
+  INITIATE
+  PROPERTY_PROFILE
+  SCENARIO_ASSUMPTIONS
+  REVIEW_EXPORT
+}
+
+enum ProformaT12Section {
+  INCOME
+  OPERATING_EXPENSES
+  BELOW_THE_LINE
+}

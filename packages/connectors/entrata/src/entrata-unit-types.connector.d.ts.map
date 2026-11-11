@@ -1,0 +1,1 @@
+{"version":3,"file":"entrata-unit-types.connector.d.ts","sourceRoot":"","sources":["entrata-unit-types.connector.ts"],"names":[],"mappings":"AAEA,MAAM,WAAW,8BAA8B;IAC7C,MAAM,EAAE,MAAM,CAAC;IACf,OAAO,EAAE,MAAM,CAAC;IAChB,OAAO,EAAE,MAAM,CAAC;IAChB,SAAS,EAAE,MAAM,CAAC;IAClB,UAAU,EAAE,MAAM,CAAC;CACpB;AAED,wBAAsB,qBAAqB,CACzC,OAAO,EAAE,8BAA8B,GACtC,OAAO,CAAC,OAAO,CAAC,CAyBlB"}

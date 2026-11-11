@@ -1,0 +1,1220 @@
+// Integration config
+
+model IntegrationPlugin {
+  id                 String              @id @map("plugin_id") @db.VarChar(100)
+  companyId          String              @map("company_id") @db.Uuid
+  pluginName         String              @map("plugin_name") @db.VarChar(200)
+  version            String              @db.VarChar(50)
+  provider           String              @db.VarChar(200)
+  sourceKind         String              @map("source_kind") @db.VarChar(100)
+  sourceType         String              @map("source_type") @db.VarChar(100)
+  manifestJson       Json?               @map("manifest_json")
+  isActive           Boolean             @default(true) @map("is_active")
+  installedAt        DateTime            @default(now()) @map("installed_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  company            Company             @relation(fields: [companyId], references: [id])
+  integrationSources IntegrationSource[]
+
+  @@index([companyId])
+  @@index([sourceType])
+  @@map("integration_plugins")
+}
+
+model IntegrationSource {
+  id                   String                    @id @default(uuid()) @db.Uuid
+  companyId            String                    @map("company_id") @db.Uuid
+  organisationId       String                    @map("organisation_id") @db.Uuid
+  pluginId             String                    @map("plugin_id") @db.VarChar(100)
+  sourceCode           String                    @map("source_code") @db.VarChar(100)
+  sourceName           String                    @map("source_name") @db.VarChar(200)
+  sourceKind           String                    @map("source_kind") @db.VarChar(100)
+  sourceType           String                    @map("source_type") @db.VarChar(100)
+  isPrimary            Boolean                   @default(false) @map("is_primary")
+  isActive             Boolean                   @default(true) @map("is_active")
+  createdAt            DateTime                  @default(now()) @map("created_at")
+  updatedAt            DateTime                  @updatedAt @map("updated_at")
+  config               IntegrationSourceConfig?
+  entities             IntegrationSourceEntity[]
+  company              Company                   @relation(fields: [companyId], references: [id])
+  organisation         Organisation              @relation(fields: [organisationId], references: [id])
+  plugin               IntegrationPlugin         @relation(fields: [pluginId], references: [id])
+  syncRuns             IntegrationSyncRun[]
+  sourceRecordMaps     SourceRecordMap[]
+  stagingBatches       StagingApiBatch[]
+  stagingBudgets       StagingBudget[]
+  stagingPropertyUnits StagingPropertyUnit[]
+  stagingUnitTypes     StagingUnitType[]
+
+  integrationReportRuns        IntegrationReportRun[]
+  integrationReportDefinitions IntegrationReportDefinition[]
+  stagingReportDatas           StagingReportData[]
+  stagingBudgetActuals         StagingBudgetActual[]
+  integrationErrorLogs         IntegrationErrorLog[]
+  stagingGlTrees               StagingGlTree[]
+
+  @@unique([companyId, organisationId, sourceCode])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([pluginId])
+  @@index([sourceType])
+  @@map("integration_sources")
+}
+
+model IntegrationSourceConfig {
+  id                  String            @id @default(uuid()) @db.Uuid
+  integrationSourceId String            @unique @map("integration_source_id") @db.Uuid
+  connectionJson      Json?             @map("connection_json")
+  credentialsJson     Json?             @map("credentials_json")
+  syncSettingsJson    Json?             @map("sync_settings_json")
+  mappingProfileJson  Json?             @map("mapping_profile_json")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+  integrationSource   IntegrationSource @relation(fields: [integrationSourceId], references: [id], onDelete: Cascade)
+
+  @@map("integration_source_configs")
+}
+
+model IntegrationSourceEntity {
+  id                  String            @id @default(uuid()) @db.Uuid
+  integrationSourceId String            @map("integration_source_id") @db.Uuid
+  entityName          String            @map("entity_name") @db.VarChar(100)
+  isEnabled           Boolean           @default(true) @map("is_enabled")
+  syncMode            String            @default("incremental") @map("sync_mode") @db.VarChar(50)
+  isAuthoritative     Boolean           @default(false) @map("is_authoritative")
+  priorityOrder       Int               @default(1) @map("priority_order")
+  syncSettingsJson    Json?             @map("sync_settings_json")
+  mappingProfileJson  Json?             @map("mapping_profile_json")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+  integrationSource   IntegrationSource @relation(fields: [integrationSourceId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationSourceId, entityName])
+  @@index([integrationSourceId])
+  @@index([entityName])
+  @@index([isEnabled])
+  @@map("integration_source_entities")
+}
+
+model IntegrationReportDefinition {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+
+  reportCode  String  @map("report_code") @db.VarChar(150)
+  reportName  String  @map("report_name") @db.VarChar(150)
+  displayName String  @map("display_name") @db.VarChar(250)
+  description String? @db.Text
+
+  reportVersion String? @map("report_version") @db.VarChar(50)
+  methodVersion String? @map("method_version") @db.VarChar(50)
+
+  entityName String @default("ReportData") @map("entity_name") @db.VarChar(100)
+
+  endpointPath String @default("reports") @map("endpoint_path") @db.VarChar(100)
+  methodName   String @default("getReportData") @map("method_name") @db.VarChar(100)
+
+  paramsSchemaJson    Json? @map("params_schema_json")
+  defaultParamsJson   Json? @map("default_params_json")
+  sourceKeyFieldsJson Json? @map("source_key_fields_json")
+  syncSettingsJson    Json? @map("sync_settings_json")
+
+  isSystemDefined Boolean @default(true) @map("is_system_defined")
+  isCustomReport  Boolean @default(false) @map("is_custom_report")
+  isEnabled       Boolean @default(true) @map("is_enabled")
+
+  effectiveFrom DateTime? @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+
+  createdBy String? @map("created_by") @db.Uuid
+  updatedBy String? @map("updated_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company           Company           @relation(fields: [companyId], references: [id])
+  organisation      Organisation      @relation(fields: [organisationId], references: [id])
+  integrationSource IntegrationSource @relation(fields: [integrationSourceId], references: [id])
+
+  runs IntegrationReportRun[]
+
+  @@unique([integrationSourceId, reportCode])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([integrationSourceId])
+  @@index([reportCode])
+  @@index([isEnabled])
+  @@map("integration_report_definitions")
+}
+
+model IntegrationReportRun {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+  reportDefinitionId  String @map("report_definition_id") @db.Uuid
+  syncRunId           String @map("sync_run_id") @db.Uuid
+
+  reportCode    String  @map("report_code") @db.VarChar(150)
+  reportName    String  @map("report_name") @db.VarChar(150)
+  reportVersion String? @map("report_version") @db.VarChar(50)
+  methodVersion String? @map("method_version") @db.VarChar(50)
+
+  requestParamsJson   Json  @map("request_params_json")
+  responseSummaryJson Json? @map("response_summary_json")
+
+  status             String @default("STARTED") @db.VarChar(50)
+  rowCount           Int    @default(0) @map("row_count")
+  recordsStaged      Int    @default(0) @map("records_staged")
+  recordsTransformed Int    @default(0) @map("records_transformed")
+  recordsFailed      Int    @default(0) @map("records_failed")
+
+  startedAt    DateTime  @default(now()) @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+  errorMessage String?   @map("error_message") @db.Text
+
+  company           Company                     @relation(fields: [companyId], references: [id])
+  organisation      Organisation                @relation(fields: [organisationId], references: [id])
+  integrationSource IntegrationSource           @relation(fields: [integrationSourceId], references: [id])
+  reportDefinition  IntegrationReportDefinition @relation(fields: [reportDefinitionId], references: [id])
+  syncRun           IntegrationSyncRun          @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([integrationSourceId])
+  @@index([reportDefinitionId])
+  @@index([syncRunId])
+  @@index([reportCode])
+  @@index([status])
+  @@map("integration_report_runs")
+}
+
+model IntegrationQueueJob {
+  id                  String  @id @default(uuid()) @db.Uuid
+  companyId           String  @map("company_id") @db.Uuid
+  organisationId      String  @map("organisation_id") @db.Uuid
+  integrationSourceId String? @map("integration_source_id") @db.Uuid
+  syncRunId           String? @map("sync_run_id") @db.Uuid
+  stagingBatchId      String? @map("staging_batch_id") @db.Uuid
+
+  queueName  String  @map("queue_name") @db.VarChar(100)
+  jobName    String  @map("job_name") @db.VarChar(100)
+  bullJobId  String? @map("bull_job_id") @db.VarChar(150)
+  entityName String? @map("entity_name") @db.VarChar(100)
+  status     String  @default("QUEUED") @db.VarChar(50)
+
+  payloadJson  Json?   @map("payload_json")
+  errorMessage String? @map("error_message") @db.Text
+
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([integrationSourceId])
+  @@index([queueName])
+  @@index([status])
+  @@index([bullJobId])
+  @@map("integration_queue_jobs")
+}
+
+model IntegrationErrorLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String  @map("company_id") @db.Uuid
+  organisationId      String  @map("organisation_id") @db.Uuid
+  integrationSourceId String? @map("integration_source_id") @db.Uuid
+  syncRunId           String? @map("sync_run_id") @db.Uuid
+
+  entityName String? @map("entity_name") @db.VarChar(100)
+  queueName  String? @map("queue_name") @db.VarChar(150)
+  jobName    String? @map("job_name") @db.VarChar(150)
+  bullJobId  String? @map("bull_job_id") @db.VarChar(150)
+
+  errorCode     String  @map("error_code") @db.VarChar(150)
+  errorMessage  String  @map("error_message")
+  errorCategory String  @map("error_category") @db.VarChar(100)
+  severity      String  @default("ERROR") @db.VarChar(50)
+  isRetryable   Boolean @default(false) @map("is_retryable")
+
+  contextJson Json?   @map("context_json")
+  stackTrace  String? @map("stack_trace")
+
+  occurredAt DateTime @default(now()) @map("occurred_at")
+
+  company           Company             @relation(fields: [companyId], references: [id])
+  organisation      Organisation        @relation(fields: [organisationId], references: [id])
+  integrationSource IntegrationSource?  @relation(fields: [integrationSourceId], references: [id])
+  syncRun           IntegrationSyncRun? @relation(fields: [syncRunId], references: [id])
+
+  @@index([companyId, occurredAt])
+  @@index([organisationId, occurredAt])
+  @@index([integrationSourceId, errorCode])
+  @@index([syncRunId])
+  @@index([entityName])
+  @@index([errorCategory])
+  @@map("integration_error_logs")
+}
+
+model IntegrationLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  service String @db.VarChar(100)
+  level   String @db.VarChar(20)
+  message String @db.Text
+
+  companyId           String? @map("company_id") @db.Uuid
+  organisationId      String? @map("organisation_id") @db.Uuid
+  integrationSourceId String? @map("integration_source_id") @db.Uuid
+  syncRunId           String? @map("sync_run_id") @db.Uuid
+  jobId               String? @map("job_id") @db.VarChar(150)
+  queueName           String? @map("queue_name") @db.VarChar(150)
+
+  entityName String? @map("entity_name") @db.VarChar(100)
+  action     String? @map("action") @db.VarChar(100)
+
+  contextJson Json?   @map("context_json")
+  errorStack  String? @map("error_stack") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+
+  @@index([service, createdAt])
+  @@index([level, createdAt])
+  @@index([companyId, createdAt])
+  @@index([entityName, createdAt])
+  @@index([syncRunId])
+  @@index([createdAt])
+  @@map("integration_logs")
+}
+
+model StagingApiBatch {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+  syncRunId           String @map("sync_run_id") @db.Uuid
+
+  entityName   String  @map("entity_name") @db.VarChar(100)
+  sourceMethod String? @map("source_method") @db.VarChar(150)
+
+  requestId    String? @map("request_id") @db.VarChar(150)
+  responseCode Int?    @map("response_code")
+
+  rawRequest  Json? @map("raw_request")
+  rawResponse Json? @map("raw_response")
+
+  status String @default("RECEIVED") @db.VarChar(50)
+  // RECEIVED, PARSED, FAILED
+
+  errorMessage String? @map("error_message") @db.Text
+
+  receivedAt DateTime @default(now()) @map("received_at")
+
+  company           Company            @relation(fields: [companyId], references: [id])
+  organisation      Organisation       @relation(fields: [organisationId], references: [id])
+  integrationSource IntegrationSource  @relation(fields: [integrationSourceId], references: [id])
+  syncRun           IntegrationSyncRun @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+
+  stagingProperties    StagingProperty[]
+  stagingPropertyUnits StagingPropertyUnit[]
+  stagingUnitTypes     StagingUnitType[]
+  stagingBudgets       StagingBudget[]
+
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  stagingReportDatas StagingReportData[]
+  stagingGlTrees     StagingGlTree[]
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([integrationSourceId])
+  @@index([syncRunId])
+  @@index([entityName])
+  @@index([status])
+  @@map("staging_api_batches")
+}
+
+model StagingProperty {
+  id                   String              @id @default(uuid()) @db.Uuid
+  companyId            String              @map("company_id") @db.Uuid
+  organisationId       String              @map("organisation_id") @db.Uuid
+  integrationSourceId  String              @map("integration_source_id") @db.Uuid
+  syncRunId            String              @map("sync_run_id") @db.Uuid
+  stagingBatchId       String              @map("staging_batch_id") @db.Uuid
+  sourceRecordId       String?             @map("source_record_id") @db.VarChar(150)
+  parentSourceRecordId String?             @map("parent_source_record_id") @db.VarChar(150)
+  propertyCode         String?             @map("property_code") @db.VarChar(100)
+  propertyName         String?             @map("property_name") @db.VarChar(255)
+  propertyType         String?             @map("property_type") @db.VarChar(100)
+  rawPropertyPayload   Json                @map("raw_property_payload")
+  validationStatus     String              @default("PENDING") @map("validation_status") @db.VarChar(50)
+  transformStatus      String              @default("PENDING") @map("transform_status") @db.VarChar(50)
+  validationErrors     Json?               @map("validation_errors")
+  transformErrors      Json?               @map("transform_errors")
+  sourceHash           String?             @map("source_hash") @db.VarChar(200)
+  stagedAt             DateTime            @default(now()) @map("staged_at")
+  transformedAt        DateTime?           @map("transformed_at")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+  company              Company             @relation(fields: [companyId], references: [id])
+  organisation         Organisation        @relation(fields: [organisationId], references: [id])
+  stagingBatch         StagingApiBatch     @relation(fields: [stagingBatchId], references: [id], onDelete: Cascade)
+  propertyGlAccounts   PropertyGlAccount[]
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([integrationSourceId])
+  @@index([syncRunId])
+  @@index([stagingBatchId])
+  @@index([sourceRecordId])
+  @@index([validationStatus])
+  @@index([transformStatus])
+  @@index([sourceHash])
+  @@map("staging_properties")
+}
+
+model StagingPropertyUnit {
+  id                  String             @id @default(uuid()) @db.Uuid
+  companyId           String             @map("company_id") @db.Uuid
+  organisationId      String             @map("organisation_id") @db.Uuid
+  integrationSourceId String             @map("integration_source_id") @db.Uuid
+  syncRunId           String             @map("sync_run_id") @db.Uuid
+  stagingBatchId      String             @map("staging_batch_id") @db.Uuid
+  sourcePropertyId    String?            @map("source_property_id") @db.VarChar(150)
+  sourceUnitId        String?            @map("source_unit_id") @db.VarChar(150)
+  remotePrimaryKey    String?            @map("remote_primary_key") @db.VarChar(300)
+  unitNumber          String?            @map("unit_number") @db.VarChar(100)
+  floorPlanName       String?            @map("floorplan_name") @db.VarChar(150)
+  unitTypeName        String?            @map("unit_type_name") @db.VarChar(150)
+  sourceHash          String?            @map("source_hash") @db.VarChar(200)
+  rawUnitPayload      Json               @map("raw_unit_payload")
+  validationStatus    String             @default("PENDING") @map("validation_status") @db.VarChar(50)
+  transformStatus     String             @default("PENDING") @map("transform_status") @db.VarChar(50)
+  validationErrors    Json?              @map("validation_errors")
+  transformErrors     Json?              @map("transform_errors")
+  stagedAt            DateTime           @default(now()) @map("staged_at")
+  transformedAt       DateTime?          @map("transformed_at")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  company             Company            @relation(fields: [companyId], references: [id])
+  integrationSource   IntegrationSource  @relation(fields: [integrationSourceId], references: [id])
+  organisation        Organisation       @relation(fields: [organisationId], references: [id])
+  stagingBatch        StagingApiBatch    @relation(fields: [stagingBatchId], references: [id], onDelete: Cascade)
+  syncRun             IntegrationSyncRun @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([integrationSourceId])
+  @@index([syncRunId])
+  @@index([stagingBatchId])
+  @@index([sourcePropertyId])
+  @@index([sourceUnitId])
+  @@index([remotePrimaryKey])
+  @@index([sourceHash])
+  @@index([validationStatus])
+  @@index([transformStatus])
+  @@map("staging_property_units")
+}
+
+model StagingUnitType {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+  syncRunId           String @map("sync_run_id") @db.Uuid
+  stagingBatchId      String @map("staging_batch_id") @db.Uuid
+
+  sourcePropertyId String? @map("source_property_id") @db.VarChar(150)
+  sourceUnitTypeId String? @map("source_unit_type_id") @db.VarChar(150)
+
+  unitTypeName  String? @map("unit_type_name") @db.VarChar(150)
+  floorPlanId   String? @map("floorplan_id") @db.VarChar(150)
+  floorPlanName String? @map("floorplan_name") @db.VarChar(150)
+
+  sourceHash String? @map("source_hash") @db.VarChar(200)
+
+  rawUnitTypePayload Json @map("raw_unit_type_payload")
+
+  validationStatus String @default("PENDING") @map("validation_status") @db.VarChar(50)
+  transformStatus  String @default("PENDING") @map("transform_status") @db.VarChar(50)
+
+  validationErrors Json? @map("validation_errors")
+  transformErrors  Json? @map("transform_errors")
+
+  stagedAt      DateTime  @default(now()) @map("staged_at")
+  transformedAt DateTime? @map("transformed_at")
+
+  company           Company            @relation(fields: [companyId], references: [id])
+  organisation      Organisation       @relation(fields: [organisationId], references: [id])
+  integrationSource IntegrationSource  @relation(fields: [integrationSourceId], references: [id])
+  syncRun           IntegrationSyncRun @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+  stagingBatch      StagingApiBatch    @relation(fields: [stagingBatchId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([integrationSourceId])
+  @@index([syncRunId])
+  @@index([stagingBatchId])
+  @@index([sourcePropertyId])
+  @@index([sourceUnitTypeId])
+  @@index([sourceHash])
+  @@index([validationStatus])
+  @@index([transformStatus])
+  @@map("staging_unit_types")
+}
+
+model StagingBudget {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+  syncRunId           String @map("sync_run_id") @db.Uuid
+  stagingBatchId      String @map("staging_batch_id") @db.Uuid
+
+  sourcePropertyId String? @map("source_property_id") @db.VarChar(150)
+  sourceBudgetId   String? @map("source_budget_id") @db.VarChar(150)
+
+  budgetName String? @map("budget_name") @db.VarChar(250)
+  fiscalYear Int?    @map("fiscal_year")
+
+  sourceHash String? @map("source_hash") @db.VarChar(200)
+
+  rawBudgetPayload Json @map("raw_budget_payload")
+
+  validationStatus String @default("PENDING") @map("validation_status") @db.VarChar(50)
+  transformStatus  String @default("PENDING") @map("transform_status") @db.VarChar(50)
+
+  validationErrors Json? @map("validation_errors")
+  transformErrors  Json? @map("transform_errors")
+
+  stagedAt      DateTime  @default(now()) @map("staged_at")
+  transformedAt DateTime? @map("transformed_at")
+
+  company           Company            @relation(fields: [companyId], references: [id])
+  organisation      Organisation       @relation(fields: [organisationId], references: [id])
+  integrationSource IntegrationSource  @relation(fields: [integrationSourceId], references: [id])
+  syncRun           IntegrationSyncRun @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+  stagingBatch      StagingApiBatch    @relation(fields: [stagingBatchId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([integrationSourceId])
+  @@index([syncRunId])
+  @@index([stagingBatchId])
+  @@index([sourcePropertyId])
+  @@index([sourceBudgetId])
+  @@index([sourceHash])
+  @@index([validationStatus])
+  @@index([transformStatus])
+  @@map("staging_budgets")
+}
+
+model StagingGlTree {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String  @map("company_id") @db.Uuid
+  organisationId      String  @map("organisation_id") @db.Uuid
+  integrationSourceId String  @map("integration_source_id") @db.Uuid
+  syncRunId           String? @map("sync_run_id") @db.Uuid
+  stagingBatchId      String? @map("staging_batch_id") @db.Uuid
+
+  sourceGlTreeId    String? @map("source_gl_tree_id") @db.VarChar(100)
+  sourceBranchId    String? @map("source_branch_id") @db.VarChar(100)
+  sourceGlAccountId String? @map("source_gl_account_id") @db.VarChar(100)
+
+  recordType String @map("record_type") @db.VarChar(50)
+
+  sourceRecordId String @map("source_record_id") @db.VarChar(300)
+  sourceHash     String @map("source_hash") @db.VarChar(128)
+
+  rawPayloadJson Json @map("raw_payload_json")
+
+  validationStatus String @default("PENDING") @map("validation_status") @db.VarChar(50)
+  transformStatus  String @default("PENDING") @map("transform_status") @db.VarChar(50)
+
+  validationErrors Json? @map("validation_errors")
+  transformErrors  Json? @map("transform_errors")
+
+  transformedAt DateTime? @map("transformed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  company      Company      @relation(fields: [companyId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  integrationSource IntegrationSource   @relation(fields: [integrationSourceId], references: [id])
+  syncRun           IntegrationSyncRun? @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+  stagingBatch      StagingApiBatch?    @relation(fields: [stagingBatchId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, organisationId, integrationSourceId, sourceRecordId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([integrationSourceId])
+  @@index([syncRunId])
+  @@index([stagingBatchId])
+  @@index([recordType])
+  @@index([transformStatus])
+  @@map("staging_gl_trees")
+}
+
+model StagingReportData {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+  syncRunId           String @map("sync_run_id") @db.Uuid
+  stagingBatchId      String @map("staging_batch_id") @db.Uuid
+
+  reportName    String  @map("report_name") @db.VarChar(150)
+  reportCode    String  @map("report_code") @db.VarChar(150)
+  reportVersion String? @map("report_version") @db.VarChar(50)
+
+  sourceRecordId String  @map("source_record_id") @db.VarChar(500)
+  sourceHash     String? @map("source_hash") @db.VarChar(200)
+
+  reportDefinitionId String @map("report_definition_id") @db.Uuid
+  reportRunId        String @map("report_run_id") @db.Uuid
+
+  rawRecordPayload Json @map("raw_record_payload")
+
+  validationStatus String @default("PENDING") @map("validation_status") @db.VarChar(50)
+  transformStatus  String @default("PENDING") @map("transform_status") @db.VarChar(50)
+
+  transformErrors Json? @map("transform_errors")
+
+  stagedAt          DateTime          @default(now()) @map("staged_at")
+  transformedAt     DateTime?         @map("transformed_at")
+  company           Company           @relation(fields: [companyId], references: [id])
+  organisation      Organisation      @relation(fields: [organisationId], references: [id])
+  integrationSource IntegrationSource @relation(fields: [integrationSourceId], references: [id])
+
+  syncRun      IntegrationSyncRun @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+  stagingBatch StagingApiBatch    @relation(fields: [stagingBatchId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([integrationSourceId])
+  @@index([syncRunId])
+  @@index([reportName])
+  @@index([sourceRecordId])
+  @@index([transformStatus])
+  @@index([reportDefinitionId])
+  @@index([reportRunId])
+  @@map("staging_report_data")
+}
+
+model SourceRecordMap {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+
+  entityName     String @map("entity_name") @db.VarChar(100)
+  sourceRecordId String @map("source_record_id") @db.VarChar(150)
+
+  canonicalTableName String @map("canonical_table_name") @db.VarChar(100)
+  canonicalRecordId  String @map("canonical_record_id") @db.Uuid
+
+  matchStatus String @default("AUTO_MATCHED") @map("match_status") @db.VarChar(50)
+  // AUTO_MATCHED, MANUAL_MATCHED, UNMATCHED, REJECTED
+
+  confidenceScore Decimal? @map("confidence_score") @db.Decimal(5, 2)
+  isAuthoritative Boolean  @default(false) @map("is_authoritative")
+
+  sourceHash   String?   @map("source_hash") @db.VarChar(200)
+  lastSyncedAt DateTime? @map("last_synced_at")
+
+  company           Company           @relation(fields: [companyId], references: [id])
+  organisation      Organisation      @relation(fields: [organisationId], references: [id])
+  integrationSource IntegrationSource @relation(fields: [integrationSourceId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, organisationId, integrationSourceId, entityName, sourceRecordId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([integrationSourceId])
+  @@index([entityName])
+  @@index([canonicalTableName, canonicalRecordId])
+  @@map("source_record_maps")
+}
+
+model IntegrationSyncRun {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+
+  entityName String @map("entity_name") @db.VarChar(100)
+  syncType   String @map("sync_type") @db.VarChar(100)
+  // PROPERTY_SYNC
+
+  status String @default("STARTED") @db.VarChar(50)
+  // STARTED, RECEIVED, STAGED, VALIDATED, TRANSFORMED, COMPLETED, FAILED, PARTIAL_FAILED
+
+  requestId    String? @map("request_id") @db.VarChar(150)
+  responseCode Int?    @map("response_code")
+
+  recordsReceived  Int @default(0) @map("records_received")
+  recordsStaged    Int @default(0) @map("records_staged")
+  recordsProcessed Int @default(0) @map("records_processed")
+  recordsFailed    Int @default(0) @map("records_failed")
+
+  startedAt   DateTime  @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  errorMessage String? @map("error_message") @db.Text
+
+  company           Company           @relation(fields: [companyId], references: [id])
+  organisation      Organisation      @relation(fields: [organisationId], references: [id])
+  integrationSource IntegrationSource @relation(fields: [integrationSourceId], references: [id])
+
+  stagingBatches       StagingApiBatch[]
+  stagingPropertyUnits StagingPropertyUnit[]
+  stagingUnitTypes     StagingUnitType[]
+
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  stagingBudgets        StagingBudget[]
+  stagingReportDatas    StagingReportData[]
+  stagingBudgetActuals  StagingBudgetActual[]
+  integrationReportRuns IntegrationReportRun[]
+  integrationErrorLogs  IntegrationErrorLog[]
+  stagingGlTrees        StagingGlTree[]
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([integrationSourceId])
+  @@index([entityName])
+  @@index([syncType])
+  @@index([status])
+  @@map("integration_sync_runs")
+}
+
+model StagingBudgetActual {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+
+  syncRunId      String @map("sync_run_id") @db.Uuid
+  stagingBatchId String @map("staging_batch_id") @db.Uuid
+
+  sourcePropertyId  String? @map("source_property_id") @db.VarChar(100)
+  sourceBudgetId    String? @map("source_budget_id") @db.VarChar(100)
+  sourceGlTreeId    String? @map("source_gl_tree_id") @db.VarChar(100)
+  sourceGlAccountId String? @map("source_gl_account_id") @db.VarChar(100)
+
+  sourceRecordId String @map("source_record_id") @db.VarChar(500)
+
+  accountingMethod String? @map("accounting_method") @db.VarChar(50)
+
+  fiscalYear Int? @map("fiscal_year")
+
+  postMonth DateTime? @map("post_month") @db.Date
+
+  sourceHash String? @map("source_hash") @db.VarChar(200)
+
+  rawPayloadJson Json @map("raw_payload_json")
+
+  validationStatus String @default("PENDING") @map("validation_status") @db.VarChar(50)
+  transformStatus  String @default("PENDING") @map("transform_status") @db.VarChar(50)
+
+  validationErrors Json? @map("validation_errors")
+  transformErrors  Json? @map("transform_errors")
+
+  stagedAt      DateTime  @default(now()) @map("staged_at")
+  transformedAt DateTime? @map("transformed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company           Company            @relation(fields: [companyId], references: [id])
+  organisation      Organisation       @relation(fields: [organisationId], references: [id])
+  integrationSource IntegrationSource  @relation(fields: [integrationSourceId], references: [id])
+  syncRun           IntegrationSyncRun @relation(fields: [syncRunId], references: [id])
+
+  @@unique([companyId, organisationId, integrationSourceId, sourceRecordId])
+  @@index([syncRunId])
+  @@index([stagingBatchId])
+  @@index([sourcePropertyId])
+  @@index([sourceBudgetId])
+  @@index([sourceGlTreeId])
+  @@index([sourceGlAccountId])
+  @@index([postMonth])
+  @@index([validationStatus])
+  @@index([transformStatus])
+  @@map("staging_budget_actuals")
+}
+
+model IntegrationReportApiLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+
+  syncRunId String @map("sync_run_id") @db.Uuid
+
+  reportCode    String  @map("report_code") @db.VarChar(150)
+  reportName    String  @map("report_name") @db.VarChar(150)
+  reportVersion String? @map("report_version") @db.VarChar(50)
+  methodVersion String? @map("method_version") @db.VarChar(50)
+
+  sourcePropertyId String? @map("source_property_id") @db.Text
+  propertyId       String? @map("property_id") @db.Uuid
+  propertyCode     String? @map("property_code") @db.Text
+
+  glTreeId         String? @map("gl_tree_id") @db.Text
+  glBookIds        Json?   @map("gl_book_ids")
+  accountingMethod String? @map("accounting_method") @db.VarChar(50)
+
+  periodType      String?   @map("period_type") @db.VarChar(50)
+  latestPostMonth DateTime? @map("latest_post_month") @db.Date
+  trailingPeriods Int?      @map("trailing_periods")
+  futurePeriods   Int?      @default(0) @map("future_periods")
+
+  requestPayload  Json  @map("request_payload")
+  responsePayload Json? @map("response_payload")
+
+  responseCode Int?    @map("response_code")
+  status       String  @default("SUCCESS") @db.VarChar(50)
+  errorMessage String? @map("error_message") @db.Text
+  errorPayload Json?   @map("error_payload")
+
+  stagedAt DateTime? @map("staged_at") @db.Timestamp(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@index([syncRunId], map: "idx_report_api_logs_sync_run")
+  @@index([companyId, organisationId, integrationSourceId, reportCode, sourcePropertyId], map: "idx_report_api_logs_report_property")
+  @@index([companyId, organisationId, integrationSourceId, status], map: "idx_report_api_logs_status")
+  @@index([propertyId], map: "idx_report_api_logs_property_id")
+  @@index([latestPostMonth], map: "idx_report_api_logs_latest_post_month")
+  @@map("integration_report_api_logs")
+}
+
+model StagingIncomeStatementActual {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+
+  syncRunId   String @map("sync_run_id") @db.Uuid
+  reportLogId String @map("report_log_id") @db.Uuid
+
+  sourcePropertyId String  @map("source_property_id") @db.Text
+  propertyId       String? @map("property_id") @db.Uuid
+  propertyCode     String? @map("property_code") @db.Text
+
+  propertyName String? @map("property_name") @db.Text
+  lookupCode   String? @map("lookup_code") @db.Text
+  unitCount    Int?    @map("unit_count")
+
+  reportCode    String  @default("income_statement_actuals") @map("report_code") @db.VarChar(150)
+  reportName    String  @default("income_statement") @map("report_name") @db.VarChar(150)
+  reportVersion String? @map("report_version") @db.VarChar(50)
+  methodVersion String? @map("method_version") @db.VarChar(50)
+
+  glTreeId         String? @map("gl_tree_id") @db.Text
+  glBookId         String? @map("gl_book_id") @db.Text
+  accountingMethod String? @map("accounting_method") @db.VarChar(50)
+
+  accountNumber   String  @map("account_number") @db.VarChar(100)
+  accountName     String? @map("account_name") @db.VarChar(500)
+  glAccountTypeId Int?    @map("gl_account_type_id")
+  accountPath     String? @map("account_path") @db.Text
+
+  monthIndex Int      @map("month_index")
+  postMonth  DateTime @map("post_month") @db.Date
+  fiscalYear Int      @map("fiscal_year")
+
+  actualAmount Decimal? @map("actual_amount") @db.Decimal(18, 2)
+  totalAmount  Decimal? @map("total_amount") @db.Decimal(18, 2)
+
+  rawRecordPayload Json @map("raw_record_payload")
+
+  transformStatus String    @default("PENDING") @map("transform_status") @db.VarChar(50)
+  transformErrors Json?     @map("transform_errors")
+  transformedAt   DateTime? @map("transformed_at") @db.Timestamp(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@unique([companyId, organisationId, integrationSourceId, syncRunId, sourcePropertyId, glTreeId, glBookId, accountNumber, postMonth], map: "uq_staging_income_statement_actuals")
+  @@index([companyId, organisationId, integrationSourceId, syncRunId, transformStatus], map: "idx_staging_income_statement_actuals_pending")
+  @@index([syncRunId], map: "idx_staging_income_statement_actuals_sync_run")
+  @@index([reportLogId], map: "idx_staging_income_statement_actuals_report_log")
+  @@index([propertyId], map: "idx_staging_income_statement_actuals_property_id")
+  @@index([propertyId, fiscalYear], map: "idx_staging_income_statement_actuals_property_year")
+  @@index([propertyCode], map: "idx_staging_income_statement_actuals_property_code")
+  @@index([sourcePropertyId], map: "idx_staging_income_statement_actuals_source_property")
+  @@index([fiscalYear, postMonth], map: "idx_staging_income_statement_actuals_period")
+  @@index([accountNumber], map: "idx_staging_income_statement_actuals_account")
+  @@index([transformStatus], map: "idx_staging_income_statement_actuals_status")
+  @@map("staging_income_statement_actuals")
+}
+
+model IntegrationDataNotification {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+
+  syncRunId   String? @map("sync_run_id") @db.Uuid
+  reportLogId String? @map("report_log_id") @db.Uuid
+
+  notificationType String @map("notification_type") @db.VarChar(100)
+  severity         String @default("WARNING") @db.VarChar(50)
+
+  entityType String @map("entity_type") @db.VarChar(100)
+
+  sourcePropertyId String? @map("source_property_id") @db.Text
+  propertyId       String? @map("property_id") @db.Uuid
+  propertyCode     String? @map("property_code") @db.Text
+
+  sourceAccountNumber String? @map("source_account_number") @db.Text
+  sourceAccountName   String? @map("source_account_name") @db.Text
+
+  message String @db.Text
+  details Json?
+
+  status String @default("OPEN") @db.VarChar(50)
+
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamp(3)
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamp(3)
+
+  @@index([companyId, organisationId, status, notificationType], map: "idx_integration_data_notifications_open")
+  @@index([syncRunId], map: "idx_integration_data_notifications_sync_run")
+  @@index([reportLogId], map: "idx_integration_data_notifications_report_log")
+  @@index([propertyId], map: "idx_integration_data_notifications_property_id")
+  @@index([sourcePropertyId], map: "idx_integration_data_notifications_source_property")
+  @@index([sourceAccountNumber], map: "idx_integration_data_notifications_source_account")
+  @@index([notificationType], map: "idx_integration_data_notifications_type")
+  @@index([severity], map: "idx_integration_data_notifications_severity")
+  @@index([status], map: "idx_integration_data_notifications_status")
+  @@map("integration_data_notifications")
+}
+
+model PropertyIncomeStatementActual {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+
+  syncRunId   String? @map("sync_run_id") @db.Uuid
+  reportLogId String? @map("report_log_id") @db.Uuid
+
+  propertyId       String @map("property_id") @db.Uuid
+  propertyCode     String @map("property_code") @db.Text
+  sourcePropertyId String @map("source_property_id") @db.Text
+
+  fiscalYear Int      @map("fiscal_year")
+  postMonth  DateTime @map("post_month") @db.Date
+
+  glTreeId         String? @map("gl_tree_id") @db.Text
+  glBookId         String? @map("gl_book_id") @db.Text
+  accountingMethod String? @map("accounting_method") @db.VarChar(50)
+
+  coaId           String? @map("coa_id") @db.Uuid
+  accountNumber   String  @map("account_number") @db.VarChar(100)
+  accountName     String? @map("account_name") @db.VarChar(500)
+  glAccountTypeId Int?    @map("gl_account_type_id")
+  accountPath     String? @map("account_path") @db.Text
+
+  actualAmount Decimal  @default(0) @map("actual_amount") @db.Decimal(18, 2)
+  totalAmount  Decimal? @map("total_amount") @db.Decimal(18, 2)
+
+  sourceSystem     String @default("ENTRATA_INCOME_STATEMENT_REPORT") @map("source_system") @db.VarChar(100)
+  rawRecordPayload Json?  @map("raw_record_payload")
+
+  importedAt DateTime @default(now()) @map("imported_at") @db.Timestamp(3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@unique([companyId, organisationId, integrationSourceId, propertyId, fiscalYear, postMonth, glTreeId, glBookId, accountNumber], map: "uq_property_income_statement_actuals")
+  @@index([companyId, organisationId, propertyId, fiscalYear], map: "idx_property_income_statement_actuals_property_year")
+  @@index([syncRunId], map: "idx_property_income_statement_actuals_sync_run")
+  @@index([accountNumber], map: "idx_property_income_statement_actuals_account")
+  @@map("property_income_statement_actuals")
+}
+
+model IntegrationPropertyProcessRun {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+
+  syncRunId String @map("sync_run_id") @db.Uuid
+
+  entityName       String  @map("entity_name") @db.VarChar(100)
+  sourcePropertyId String  @map("source_property_id") @db.Text
+  propertyId       String? @map("property_id") @db.Uuid
+  propertyCode     String? @map("property_code") @db.Text
+
+  fiscalYear Int? @map("fiscal_year")
+
+  status String @default("PENDING") @db.VarChar(50)
+
+  transformStatus  String? @map("transform_status") @db.VarChar(50)
+  projectStatus    String? @map("project_status") @db.VarChar(50)
+  reforecastStatus String? @map("reforecast_status") @db.VarChar(50)
+
+  rowsProcessed          Int @default(0) @map("rows_processed")
+  actualRowsUpserted     Int @default(0) @map("actual_rows_upserted")
+  calcLinesUpserted      Int @default(0) @map("calc_lines_upserted")
+  reforecastLinesUpdated Int @default(0) @map("reforecast_lines_updated")
+
+  errorMessage String? @map("error_message") @db.Text
+  errorPayload Json?   @map("error_payload")
+
+  startedAt   DateTime? @map("started_at") @db.Timestamp(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamp(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@unique([companyId, organisationId, integrationSourceId, syncRunId, entityName, sourcePropertyId], map: "uq_integration_property_process_runs")
+  @@index([companyId, organisationId, integrationSourceId, syncRunId, entityName, status], map: "idx_integration_property_process_runs_status")
+  @@map("integration_property_process_runs")
+}
+
+model StagingBudgetReport {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+
+  syncRunId   String  @map("sync_run_id") @db.Uuid
+  reportLogId String? @map("report_log_id") @db.Uuid
+
+  propertyId       String? @map("property_id") @db.Uuid
+  sourcePropertyId String? @map("source_property_id") @db.Text
+  propertyCode     String? @map("property_code") @db.Text
+  propertyName     String? @map("property_name") @db.Text
+
+  reportCode String? @default("budget_report") @map("report_code") @db.VarChar(150)
+  reportName String? @default("budget") @map("report_name") @db.VarChar(150)
+
+  glTreeId String? @map("gl_tree_id") @db.Text
+
+  accountNumber String  @map("account_number") @db.VarChar(100)
+  accountName   String? @map("account_name") @db.VarChar(500)
+  accountPath   String? @map("account_path") @db.Text
+
+  postMonth  DateTime @map("post_month") @db.Date
+  fiscalYear Int      @map("fiscal_year")
+
+  budgetAmount Decimal? @map("budget_amount") @db.Decimal(18, 2)
+
+  rawRecordPayload Json? @map("raw_record_payload")
+
+  transformStatus String    @default("PENDING") @map("transform_status") @db.VarChar(50)
+  transformErrors Json?     @map("transform_errors")
+  transformedAt   DateTime? @map("transformed_at") @db.Timestamp(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@index([companyId, organisationId, integrationSourceId, syncRunId, transformStatus], map: "idx_staging_budget_reports_pending")
+  @@index([syncRunId], map: "idx_staging_budget_reports_sync_run")
+  @@index([propertyId], map: "idx_staging_budget_reports_property_id")
+  @@index([sourcePropertyId], map: "idx_staging_budget_reports_source_property")
+  @@index([accountNumber], map: "idx_staging_budget_reports_account")
+  @@map("staging_budget_reports")
+}
+
+model PropertyBudgetReport {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+
+  syncRunId String @map("sync_run_id") @db.Uuid
+
+  propertyId       String  @map("property_id") @db.Uuid
+  sourcePropertyId String? @map("source_property_id") @db.Text
+  propertyCode     String? @map("property_code") @db.Text
+
+  fiscalYear Int      @map("fiscal_year")
+  postMonth  DateTime @map("post_month") @db.Date
+
+  glTreeId String? @map("gl_tree_id") @db.Text
+
+  accountNumber String  @map("account_number") @db.VarChar(100)
+  accountName   String? @map("account_name") @db.VarChar(500)
+  accountPath   String? @map("account_path") @db.Text
+
+  budgetAmount Decimal? @map("budget_amount") @db.Decimal(18, 2)
+
+  sourceSystem String @default("ENTRATA_BUDGET_REPORT") @map("source_system") @db.VarChar(100)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@unique([companyId, organisationId, integrationSourceId, propertyId, fiscalYear, postMonth, accountNumber], map: "uq_property_budget_reports")
+  @@index([companyId, organisationId, propertyId, fiscalYear], map: "idx_property_budget_reports_property_year")
+  @@index([syncRunId], map: "idx_property_budget_reports_sync_run")
+  @@index([accountNumber], map: "idx_property_budget_reports_account")
+  @@map("property_budget_reports")
+}
+
+model StagingBalanceSheetActual {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+
+  syncRunId   String @map("sync_run_id") @db.Uuid
+  reportLogId String @map("report_log_id") @db.Uuid
+
+  sourcePropertyId String  @map("source_property_id") @db.Text
+  propertyId       String? @map("property_id") @db.Uuid
+  propertyCode     String? @map("property_code") @db.Text
+
+  propertyName String? @map("property_name") @db.Text
+  lookupCode   String? @map("lookup_code") @db.Text
+
+  reportCode    String  @default("balance_sheet") @map("report_code") @db.VarChar(150)
+  reportName    String  @default("balance_sheet") @map("report_name") @db.VarChar(150)
+  reportVersion String? @default("3.2") @map("report_version") @db.VarChar(50)
+  methodVersion String? @default("r2") @map("method_version") @db.VarChar(50)
+
+  glTreeId         String? @map("gl_tree_id") @db.Text
+  glBookId         String? @map("gl_book_id") @db.Text
+  accountingMethod String? @default("accrual") @map("accounting_method") @db.VarChar(50)
+
+  accountNumber String  @map("account_number") @db.VarChar(100)
+  accountName   String? @map("account_name") @db.VarChar(500)
+  accountPath   String? @map("account_path") @db.Text
+  accountGroup  String? @map("account_group") @db.VarChar(255)
+
+  fiscalYear Int @map("fiscal_year")
+
+  // Monthly Period Balances (mapped to Fiscal Period 1..12: janAmount = Period 1)
+  janAmount Decimal? @default(0) @map("jan_amount") @db.Decimal(18, 2)
+  febAmount Decimal? @default(0) @map("feb_amount") @db.Decimal(18, 2)
+  marAmount Decimal? @default(0) @map("mar_amount") @db.Decimal(18, 2)
+  aprAmount Decimal? @default(0) @map("apr_amount") @db.Decimal(18, 2)
+  mayAmount Decimal? @default(0) @map("may_amount") @db.Decimal(18, 2)
+  junAmount Decimal? @default(0) @map("jun_amount") @db.Decimal(18, 2)
+  julAmount Decimal? @default(0) @map("jul_amount") @db.Decimal(18, 2)
+  augAmount Decimal? @default(0) @map("aug_amount") @db.Decimal(18, 2)
+  sepAmount Decimal? @default(0) @map("sep_amount") @db.Decimal(18, 2)
+  octAmount Decimal? @default(0) @map("oct_amount") @db.Decimal(18, 2)
+  novAmount Decimal? @default(0) @map("nov_amount") @db.Decimal(18, 2)
+  decAmount Decimal? @default(0) @map("dec_amount") @db.Decimal(18, 2)
+
+  fullYearAmount      Decimal? @default(0) @map("full_year_amount") @db.Decimal(18, 2)
+  currentPeriodAmount Decimal? @map("current_period_amount") @db.Decimal(18, 2)
+  priorPeriodAmount   Decimal? @map("prior_period_amount") @db.Decimal(18, 2)
+  priorYearAmount     Decimal? @map("prior_year_amount") @db.Decimal(18, 2)
+  priorYearEnd        Decimal? @map("prior_year_end") @db.Decimal(18, 2)
+
+  rawRecordPayload Json @map("raw_record_payload")
+
+  transformStatus String    @default("PENDING") @map("transform_status") @db.VarChar(50)
+  transformErrors Json?     @map("transform_errors")
+  transformedAt   DateTime? @map("transformed_at") @db.Timestamp(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@unique([companyId, organisationId, integrationSourceId, syncRunId, sourcePropertyId, glTreeId, glBookId, accountNumber], map: "uq_staging_balance_sheet_actuals")
+  @@index([companyId, organisationId, integrationSourceId, syncRunId, transformStatus], map: "idx_staging_balance_sheet_actuals_pending")
+  @@index([syncRunId], map: "idx_staging_balance_sheet_actuals_sync_run")
+  @@index([reportLogId], map: "idx_staging_balance_sheet_actuals_report_log")
+  @@index([propertyId], map: "idx_staging_balance_sheet_actuals_property_id")
+  @@index([propertyId, fiscalYear], map: "idx_staging_balance_sheet_actuals_property_year")
+  @@index([sourcePropertyId], map: "idx_staging_balance_sheet_actuals_source_property")
+  @@index([accountNumber], map: "idx_staging_balance_sheet_actuals_account")
+  @@index([transformStatus], map: "idx_staging_balance_sheet_actuals_status")
+  @@map("staging_balance_sheet_actuals")
+}
+
+model PropertyBalanceSheetActual {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId           String @map("company_id") @db.Uuid
+  organisationId      String @map("organisation_id") @db.Uuid
+  integrationSourceId String @map("integration_source_id") @db.Uuid
+
+  syncRunId   String? @map("sync_run_id") @db.Uuid
+  reportLogId String? @map("report_log_id") @db.Uuid
+
+  propertyId       String @map("property_id") @db.Uuid
+  propertyCode     String @map("property_code") @db.Text
+  sourcePropertyId String @map("source_property_id") @db.Text
+
+  fiscalYear Int @map("fiscal_year")
+
+  glTreeId         String? @map("gl_tree_id") @db.Text
+  glBookId         String? @map("gl_book_id") @db.Text
+  accountingMethod String? @default("accrual") @map("accounting_method") @db.VarChar(50)
+
+  coaId         String? @map("coa_id") @db.Uuid
+  accountNumber String  @map("account_number") @db.VarChar(100)
+  accountName   String? @map("account_name") @db.VarChar(500)
+  accountPath   String? @map("account_path") @db.Text
+  accountGroup  String? @map("account_group") @db.VarChar(255)
+
+  // 12-Month Period Balances (Direct parity with budget_calc_lines: janAmount = Period 1)
+  janAmount Decimal? @default(0) @map("jan_amount") @db.Decimal(18, 2)
+  febAmount Decimal? @default(0) @map("feb_amount") @db.Decimal(18, 2)
+  marAmount Decimal? @default(0) @map("mar_amount") @db.Decimal(18, 2)
+  aprAmount Decimal? @default(0) @map("apr_amount") @db.Decimal(18, 2)
+  mayAmount Decimal? @default(0) @map("may_amount") @db.Decimal(18, 2)
+  junAmount Decimal? @default(0) @map("jun_amount") @db.Decimal(18, 2)
+  julAmount Decimal? @default(0) @map("jul_amount") @db.Decimal(18, 2)
+  augAmount Decimal? @default(0) @map("aug_amount") @db.Decimal(18, 2)
+  sepAmount Decimal? @default(0) @map("sep_amount") @db.Decimal(18, 2)
+  octAmount Decimal? @default(0) @map("oct_amount") @db.Decimal(18, 2)
+  novAmount Decimal? @default(0) @map("nov_amount") @db.Decimal(18, 2)
+  decAmount Decimal? @default(0) @map("dec_amount") @db.Decimal(18, 2)
+
+  fullYearAmount      Decimal? @default(0) @map("full_year_amount") @db.Decimal(18, 2)
+  currentPeriodAmount Decimal? @map("current_period_amount") @db.Decimal(18, 2)
+  priorPeriodAmount   Decimal? @map("prior_period_amount") @db.Decimal(18, 2)
+  priorYearAmount     Decimal? @map("prior_year_amount") @db.Decimal(18, 2)
+  priorYearEnd        Decimal? @map("prior_year_end") @db.Decimal(18, 2)
+
+  sourceSystem     String @default("ENTRATA_BALANCE_SHEET_REPORT") @map("source_system") @db.VarChar(100)
+  rawRecordPayload Json?  @map("raw_record_payload")
+
+  importedAt DateTime @default(now()) @map("imported_at") @db.Timestamp(3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@unique([companyId, organisationId, integrationSourceId, propertyId, fiscalYear, glTreeId, glBookId, accountNumber], map: "uq_property_balance_sheet_actuals")
+  @@index([companyId, organisationId, propertyId, fiscalYear], map: "idx_property_bs_actuals_property_year")
+  @@index([syncRunId], map: "idx_property_bs_actuals_sync_run")
+  @@index([accountNumber], map: "idx_property_bs_actuals_account")
+  @@map("property_balance_sheet_actuals")
+}

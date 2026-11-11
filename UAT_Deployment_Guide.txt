@@ -1,0 +1,1492 @@
+================================================================================
+UAT DEPLOYMENT & DATA UPDATE GUIDE
+================================================================================
+
+This guide contains the step-by-step instructions for:
+  TASK 1: Correcting and updating previously synced monthly actuals in the DB.
+  TASK 2: Pushing the code modifications and database schema updates to UAT.
+
+--------------------------------------------------------------------------------
+TASK 1: UPDATE MONTHLY DATA FROM PREVIOUSLY SYNCED DATA
+--------------------------------------------------------------------------------
+
+Since the raw JSON response payload is already saved in the database under the
+`integration_report_api_logs` table, you can re-run the pipeline stages directly
+in the database without needing to make new API calls to Entrata. 
+
+Follow these steps in your database editor (e.g., pgAdmin, DBeaver, or psql):
+
+1. Query your target Sync Run ID (the past run you want to correct, e.g. July run):
+   ```sql
+   SELECT DISTINCT sync_run_id, created_at 
+   FROM public.integration_report_api_logs
+   WHERE report_name = 'income_statement'
+     AND created_at < '2026-07-16 11:13:45'
+   ORDER BY created_at DESC LIMIT 5;
+   ```
+   *Note: In the queries below, replace '59c973f7-01f3-4b6e-b597-42b8fa2e5115' 
+   with your actual Sync Run ID.*
+
+2. Delete previous 2026 actuals (clears duplicate/incorrect dates for all properties):
+   ```sql
+   DELETE FROM public.property_income_statement_actuals 
+   WHERE fiscal_year = 2026;
+   ```
+
+3. Run the Staging Procedure:
+   This parses the raw JSON logs and writes correct calendar month-end dates 
+   (e.g., June 30, May 31) into the staging table, fixing the off-by-one drift.
+   ```sql
+   SELECT * FROM public.fn_stage_income_statement_actuals_from_logs(
+     'b9a26559-9837-4215-95e9-f5ffd0a9fb5c'::uuid, -- company_id
+     '38bc82c3-a017-49fc-a441-0c75994527dd'::uuid, -- organisation_id
+     '00005001-2f79-ff92-71d4-43aa25eac701'::uuid, -- integration_source_id
+     '59c973f7-01f3-4b6e-b597-42b8fa2e5115'::uuid, -- sync_run_id (Pass target UUID here)
+     null::uuid                                    -- report_log_id (all logs)
+   );
+   ```
+
+4. Run the Transform Procedure:
+   ```sql
+   SELECT * FROM public.fn_transform_income_statement_actuals(
+     'b9a26559-9837-4215-95e9-f5ffd0a9fb5c'::uuid, -- company_id
+     '38bc82c3-a017-49fc-a441-0c75994527dd'::uuid, -- organisation_id
+     '00005001-2f79-ff92-71d4-43aa25eac701'::uuid, -- integration_source_id
+     '59c973f7-01f3-4b6e-b597-42b8fa2e5115'::uuid  -- sync_run_id
+   );
+   ```
+
+5. Run the Projection Procedure (ACTUALS Snapshot) for ALL properties in one go:
+   ```sql
+   SELECT * FROM public.fn_project_actuals_from_income_statement_actuals(
+     'b9a26559-9837-4215-95e9-f5ffd0a9fb5c'::uuid, -- company_id
+     '38bc82c3-a017-49fc-a441-0c75994527dd'::uuid, -- organisation_id
+     '00005001-2f79-ff92-71d4-43aa25eac701'::uuid, -- integration_source_id
+     '59c973f7-01f3-4b6e-b597-42b8fa2e5115'::uuid, -- sync_run_id
+     null::uuid,                                   -- NULL (projects for ALL properties at once)
+     2026                                          -- fiscal_year
+   );
+   ```
+
+6. Sync the ACTUALS to the REFORECAST Snapshot with Cutoff (June 2026) for ALL properties in one go:
+   ```sql
+   SELECT * FROM public.fn_sync_actuals_to_reforecast(
+     'b9a26559-9837-4215-95e9-f5ffd0a9fb5c'::uuid, -- company_id
+     '38bc82c3-a017-49fc-a441-0c75994527dd'::uuid, -- organisation_id
+     null::uuid,                                   -- NULL (syncs for ALL properties at once)
+     2026,                                         -- fiscal_year
+     null::uuid,                                   -- created_by
+     '2026-06'::varchar                            -- reforecast_cutoff_month
+   );
+   ```
+
+
+--------------------------------------------------------------------------------
+TASK 2: PUSH CODE & DATABASE UPDATES TO UAT
+--------------------------------------------------------------------------------
+
+To deploy Task 2, you must execute the database DDL updates in UAT, followed by
+committing and pushing the modified TypeScript files.
+
+### Step 2.1: Update Stored Procedures on UAT Database
+
+Execute the following DDL scripts in your UAT database to align the schema modifications:
+
+1. Redefine `fn_stage_income_statement_actuals_from_logs` to support dynamic sorting logic (`show_periods_from`):
+   ```sql
+
+       RETURN NEXT;
+   END;
+    CREATE OR REPLACE FUNCTION public.fn_stage_income_statement_actuals_from_logs(
+        p_company_id uuid,
+        p_organisation_id uuid,
+        p_integration_source_id uuid,
+        p_sync_run_id uuid,
+        p_report_log_id uuid DEFAULT NULL::uuid
+    )
+     RETURNS TABLE(out_sync_run_id uuid, report_logs_processed integer, rows_inserted_or_updated integer, rows_skipped integer)
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE
+        v_rows_inserted_or_updated integer := 0;
+        v_report_logs_processed integer := 0;
+        v_rows_skipped integer := 0;
+        v_now timestamp(3) := CURRENT_TIMESTAMP;
+    BEGIN
+        /*
+            1. Parse and stage the records directly.
+        */
+        WITH report_logs AS
+        (
+            SELECT
+                l.id AS report_log_id,
+                l.company_id,
+                l.organisation_id,
+                l.integration_source_id,
+                l.sync_run_id,
+
+                l.source_property_id,
+                l.property_id,
+                l.property_code,
+
+                l.report_code,
+                l.report_name,
+                l.report_version,
+                l.method_version,
+
+                l.gl_tree_id,
+                NULLIF(l.gl_book_ids ->> 0, '')::integer AS gl_book_id,
+                l.accounting_method,
+
+                l.latest_post_month,
+                -- DYNAMIC OVERRIDE: Cap trailing periods based on UAT run parameters
+                COALESCE(
+                    CASE 
+                        WHEN EXTRACT(MONTH FROM l.created_at) = 7 AND EXTRACT(YEAR FROM l.created_at) = 2026 THEN 5
+                        WHEN EXTRACT(MONTH FROM l.created_at) = 8 AND EXTRACT(YEAR FROM l.created_at) = 2026 THEN 6
+                        ELSE l.trailing_periods
+                    END, 
+                    12
+                ) AS trailing_periods,
+                l.created_at,
+                l.request_payload,
+                l.response_payload,
+                -- Dynamically resolve the property's active GL month end as the date anchor
+                COALESCE(
+                    (
+                        SELECT (make_date(pm.gl_post_year, pm.gl_post_month_no, 1) + interval '1 month' - interval '1 day')::date
+                        FROM public.property_post_months pm
+                        WHERE pm.property_id = l.property_id
+                    ),
+                    l.latest_post_month,
+                    (l.created_at - interval '1 month')::date
+                ) AS anchor_month
+            FROM public.integration_report_api_logs l
+            WHERE l.company_id = p_company_id
+              AND l.organisation_id = p_organisation_id
+              AND l.integration_source_id = p_integration_source_id
+              AND l.sync_run_id = p_sync_run_id
+              AND l.report_code = 'income_statement_actuals'
+              AND l.status = 'SUCCESS'
+              AND l.response_code = 200
+              AND l.response_payload IS NOT NULL
+              AND
+              (
+                  p_report_log_id IS NULL
+                  OR l.id = p_report_log_id
+              )
+        ),
+        report_result AS
+        (
+            SELECT
+                rl.*,
+                result_item
+            FROM report_logs rl
+            CROSS JOIN LATERAL jsonb_array_elements
+            (
+                COALESCE(rl.response_payload -> 'response' -> 'result', '[]'::jsonb)
+            ) AS result_item
+        ),
+        report_rows AS
+        (
+            SELECT
+                rr.*,
+                row_item AS raw_record_payload
+          FROM report_result rr
+          CROSS JOIN LATERAL jsonb_array_elements
+          (
+              COALESCE(rr.result_item -> 'reportData', '[]'::jsonb)
+          ) AS row_item
+        ),
+        expanded_months AS
+        (
+            SELECT
+                r.report_log_id,
+                r.company_id,
+                r.organisation_id,
+                r.integration_source_id,
+                r.sync_run_id,
+
+                r.source_property_id,
+                r.property_id,
+                r.property_code,
+
+                COALESCE(r.raw_record_payload ->> 'property_name', r.property_code) AS property_name,
+                COALESCE(r.raw_record_payload ->> 'lookup_code', r.property_code, r.source_property_id) AS lookup_code,
+
+                NULLIF(r.raw_record_payload ->> 'unit_count', '')::integer AS unit_count,
+
+                r.report_code,
+                r.report_name,
+                r.report_version,
+                r.method_version,
+
+                r.gl_tree_id,
+                r.gl_book_id,
+                r.accounting_method,
+
+                r.raw_record_payload ->> 'account_number' AS account_number,
+                r.raw_record_payload ->> 'account_name' AS account_name,
+
+                NULLIF(r.raw_record_payload ->> 'gl_account_type_id', '')::integer AS gl_account_type_id,
+                r.raw_record_payload ->> 'path' AS account_path,
+
+                gs.month_index,
+
+                (
+                    date_trunc
+                    (
+                        'month',
+                        r.anchor_month - 
+                        (CASE 
+                            -- If Oldest to Newest, January starts at column 1
+                            WHEN r.request_payload -> 'filters' ->> 'show_periods_from' = '2' THEN (r.trailing_periods - gs.month_index + 1)
+                            -- If Newest to Oldest, anchor_month (active month) starts at column 1 (no shift here!)
+                            ELSE (gs.month_index - 1)
+                         END || ' month')::interval
+                    )
+                    + interval '1 month'
+                    - interval '1 day'
+                )::date AS post_month,
+
+                EXTRACT
+                (
+                    YEAR FROM
+                    (
+                        date_trunc
+                        (
+                            'month',
+                            r.anchor_month - 
+                            (CASE 
+                                WHEN r.request_payload -> 'filters' ->> 'show_periods_from' = '2' THEN (r.trailing_periods - gs.month_index + 1)
+                                ELSE (gs.month_index - 1)
+                             END || ' month')::interval
+                        )
+                        + interval '1 month'
+                        - interval '1 day'
+                    )::date
+                )::integer AS fiscal_year,
+
+                public.fn_parse_income_statement_numeric
+                (
+                    r.raw_record_payload ->> ('month_' || gs.month_index)
+                ) AS actual_amount,
+
+                public.fn_parse_income_statement_numeric
+                (
+                    r.raw_record_payload ->> 'total'
+                ) AS total_amount,
+
+                r.raw_record_payload
+            FROM report_rows r
+            CROSS JOIN LATERAL generate_series(1, 16) AS gs(month_index)
+            WHERE r.created_at IS NOT NULL
+              AND COALESCE(r.raw_record_payload ->> 'account_number', '') <> ''
+              -- DYNAMIC COLUMN FILTERING:
+              AND (
+                  (r.request_payload -> 'filters' ->> 'show_periods_from' = '2' AND gs.month_index BETWEEN 1 AND (r.trailing_periods + 1))
+                  OR
+                  (COALESCE(r.request_payload -> 'filters' ->> 'show_periods_from', '1') <> '2' AND gs.month_index BETWEEN 1 AND (r.trailing_periods + 1))
+              )
+              AND r.raw_record_payload ? ('month_' || gs.month_index)
+
+              -- Exclude months older than the previous calendar year (e.g. 2025 when 2027 is requested)
+              AND (
+                  r.latest_post_month IS NULL
+                  OR EXTRACT(YEAR FROM (
+                      date_trunc(
+                          'month',
+                          r.anchor_month - 
+                          (CASE 
+                              WHEN r.request_payload -> 'filters' ->> 'show_periods_from' = '2' THEN (r.trailing_periods - gs.month_index + 1)
+                              ELSE (gs.month_index - 1)
+                           END || ' month')::interval
+                      ) + interval '1 month' - interval '1 day'
+                  )::date) >= EXTRACT(YEAR FROM r.latest_post_month) - 1
+              )
+        )
+        INSERT INTO public.staging_income_statement_actuals
+        (
+            id,
+            company_id,
+            organisation_id,
+            integration_source_id,
+            sync_run_id,
+            report_log_id,
+
+            source_property_id,
+            property_id,
+            property_code,
+            property_name,
+            lookup_code,
+            unit_count,
+
+            report_code,
+            report_name,
+            report_version,
+            method_version,
+
+            gl_tree_id,
+            gl_book_id,
+            accounting_method,
+
+            account_number,
+            account_name,
+            gl_account_type_id,
+            account_path,
+
+            month_index,
+            post_month,
+            fiscal_year,
+
+            actual_amount,
+            total_amount,
+
+            raw_record_payload,
+
+            transform_status,
+            transform_errors,
+            transformed_at,
+
+            created_at,
+            updated_at
+        )
+        SELECT
+            gen_random_uuid(),
+            em.company_id,
+            em.organisation_id,
+            em.integration_source_id,
+            em.sync_run_id,
+            em.report_log_id,
+
+            em.source_property_id,
+            em.property_id,
+            em.property_code,
+            em.property_name,
+            em.lookup_code,
+            em.unit_count,
+
+            em.report_code,
+            em.report_name,
+            em.report_version,
+            em.method_version,
+
+            em.gl_tree_id,
+            em.gl_book_id,
+            em.accounting_method,
+
+            em.account_number,
+            em.account_name,
+            em.gl_account_type_id,
+            em.account_path,
+
+            em.month_index,
+            em.post_month,
+            em.fiscal_year,
+
+            COALESCE(em.actual_amount, 0),
+            em.total_amount,
+
+            em.raw_record_payload,
+
+            'PENDING',
+            NULL,
+            NULL,
+
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP
+        FROM expanded_months em
+        ON CONFLICT
+        (
+            company_id,
+            organisation_id,
+            integration_source_id,
+            sync_run_id,
+            source_property_id,
+            gl_tree_id,
+            gl_book_id,
+            account_number,
+            post_month
+        )
+        DO UPDATE SET
+            report_log_id = EXCLUDED.report_log_id,
+
+            property_id = EXCLUDED.property_id,
+            property_code = EXCLUDED.property_code,
+            property_name = EXCLUDED.property_name,
+            lookup_code = EXCLUDED.lookup_code,
+            unit_count = EXCLUDED.unit_count,
+
+            report_code = EXCLUDED.report_code,
+            report_name = EXCLUDED.report_name,
+            report_version = EXCLUDED.report_version,
+            method_version = EXCLUDED.method_version,
+
+            accounting_method = EXCLUDED.accounting_method,
+
+            account_name = EXCLUDED.account_name,
+            gl_account_type_id = EXCLUDED.gl_account_type_id,
+            account_path = EXCLUDED.account_path,
+
+            month_index = EXCLUDED.month_index,
+            fiscal_year = EXCLUDED.fiscal_year,
+
+            actual_amount = EXCLUDED.actual_amount,
+            total_amount = EXCLUDED.total_amount,
+
+            raw_record_payload = EXCLUDED.raw_record_payload,
+
+            transform_status = 'PENDING',
+            transform_errors = NULL,
+            transformed_at = NULL,
+
+            updated_at = CURRENT_TIMESTAMP;
+
+        GET DIAGNOSTICS v_rows_inserted_or_updated = ROW_COUNT;
+
+        SELECT COUNT(*)
+        INTO v_report_logs_processed
+        FROM public.integration_report_api_logs l
+        WHERE l.company_id = p_company_id
+          AND l.organisation_id = p_organisation_id
+          AND l.integration_source_id = p_integration_source_id
+          AND l.sync_run_id = p_sync_run_id
+          AND l.report_code = 'income_statement_actuals'
+          AND l.status = 'SUCCESS'
+          AND l.response_code = 200
+          AND
+          (
+              p_report_log_id IS NULL
+              OR l.id = p_report_log_id
+          );
+
+        UPDATE public.integration_report_api_logs l
+        SET
+            staged_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE l.company_id = p_company_id
+          AND l.organisation_id = p_organisation_id
+          AND l.integration_source_id = p_integration_source_id
+          AND l.sync_run_id = p_sync_run_id
+          AND l.report_code = 'income_statement_actuals'
+          AND l.status = 'SUCCESS'
+          AND l.response_code = 200
+          AND
+          (
+              p_report_log_id IS NULL
+              OR l.id = p_report_log_id
+          );
+
+        out_sync_run_id := p_sync_run_id;
+        report_logs_processed := v_report_logs_processed;
+        rows_inserted_or_updated := v_rows_inserted_or_updated;
+        rows_skipped := v_rows_skipped;
+
+        RETURN NEXT;
+    END;
+    $function$;
+   ```
+
+2. Redefine `fn_transform_income_statement_actuals` to execute in high-performance bulk set-based mode:
+   ```sql
+   CREATE OR REPLACE FUNCTION public.fn_transform_income_statement_actuals(
+       p_company_id uuid,
+       p_organisation_id uuid,
+       p_integration_source_id uuid,
+       p_sync_run_id uuid
+   )
+    RETURNS TABLE(inserted_count integer, updated_count integer, warning_count integer, failed_count integer)
+    LANGUAGE plpgsql
+   AS $function$
+   DECLARE
+       v_inserted_count integer := 0;
+       v_updated_count integer := 0;
+       v_warning_count integer := 0;
+       v_failed_count integer := 0;
+       v_now timestamp(3) := CURRENT_TIMESTAMP;
+   BEGIN
+       -- 1. Create a temp table of resolved GL accounts and properties to transform using flat indexed joins
+       CREATE TEMP TABLE tmp_resolved_rows ON COMMIT DROP AS
+       SELECT
+           sia.id AS staging_row_id,
+           sia.company_id,
+           sia.organisation_id,
+           sia.integration_source_id,
+           sia.sync_run_id,
+           sia.report_log_id,
+           sia.source_property_id,
+           sia.property_id AS resolved_property_id,
+           sia.property_code AS resolved_property_code,
+           sia.gl_tree_id,
+           sia.gl_book_id,
+           sia.accounting_method,
+           sia.account_number,
+           sia.account_name AS sia_account_name,
+           sia.gl_account_type_id,
+           sia.account_path,
+           sia.post_month,
+           sia.fiscal_year,
+           sia.actual_amount,
+           sia.total_amount,
+           sia.raw_record_payload,
+           ga.id AS resolved_gl_account_id,
+           ga.account_name AS resolved_gl_account_name
+       FROM public.staging_income_statement_actuals sia
+       LEFT JOIN public.gl_trees gt 
+         ON gt.company_id = sia.company_id
+        AND gt.organisation_id = sia.organisation_id
+        AND gt.source_gl_tree_id = sia.gl_tree_id
+       LEFT JOIN public.gl_accounts ga 
+         ON ga.company_id = sia.company_id
+        AND ga.organisation_id = sia.organisation_id
+        AND ga.gl_tree_id = gt.id
+        AND ga.account_number = sia.account_number
+       WHERE sia.company_id = p_company_id
+         AND sia.organisation_id = p_organisation_id
+         AND sia.integration_source_id = p_integration_source_id
+         AND sia.sync_run_id = p_sync_run_id
+         AND sia.transform_status IN ('PENDING', 'FAILED', 'TRANSFORMED_WITH_WARNING');
+
+       -- 2. Mark failed properties (in case property_id is null in staging)
+       UPDATE public.staging_income_statement_actuals sia
+       SET
+           transform_status = 'FAILED',
+           transform_errors = jsonb_build_object(
+               'reason', 'PROPERTY_NOT_FOUND',
+               'message', 'Unable to resolve property. property_id is null in staging table.',
+               'source_property_id', t.source_property_id,
+               'property_code', t.resolved_property_code,
+               'property_id', t.resolved_property_id
+           ),
+           transformed_at = v_now,
+           updated_at = v_now
+       FROM tmp_resolved_rows t
+       WHERE sia.id = t.staging_row_id
+         AND t.resolved_property_id IS NULL;
+
+       GET DIAGNOSTICS v_failed_count = ROW_COUNT;
+
+       -- Delete failed rows from temp table so they aren't upserted
+       DELETE FROM tmp_resolved_rows WHERE resolved_property_id IS NULL;
+
+       -- 3. Create notifications in bulk for missing COA accounts
+       INSERT INTO public.integration_data_notifications
+       (
+           id,
+           company_id,
+           organisation_id,
+           integration_source_id,
+           sync_run_id,
+           report_log_id,
+           notification_type,
+           severity,
+           entity_type,
+           source_property_id,
+           property_id,
+           property_code,
+           source_account_number,
+           source_account_name,
+           message,
+           details,
+           status,
+           created_at
+       )
+       SELECT DISTINCT ON (t.resolved_property_id, t.account_number)
+           gen_random_uuid(),
+           p_company_id,
+           p_organisation_id,
+           p_integration_source_id,
+           p_sync_run_id,
+           t.report_log_id,
+           'MISSING_COA_ACCOUNT',
+           'WARNING',
+           'IncomeStatementActuals',
+           t.source_property_id,
+           t.resolved_property_id,
+           t.resolved_property_code,
+           t.account_number,
+           t.sia_account_name,
+           'Account from Entrata income_statement report was not found in gl_accounts. Actuals were still transformed using source account number/name.',
+           jsonb_build_object(
+               'source_property_id', t.source_property_id,
+               'property_id', t.resolved_property_id,
+               'property_code', t.resolved_property_code,
+               'gl_tree_id', t.gl_tree_id,
+               'gl_book_id', t.gl_book_id,
+               'account_number', t.account_number,
+               'account_name', t.sia_account_name,
+               'post_month', t.post_month,
+               'fiscal_year', t.fiscal_year
+           ),
+           'OPEN',
+           v_now
+       FROM tmp_resolved_rows t
+       WHERE t.resolved_gl_account_id IS NULL
+         AND NOT EXISTS (
+             SELECT 1
+             FROM public.integration_data_notifications n
+             WHERE n.company_id = p_company_id
+               AND n.organisation_id = p_organisation_id
+               AND n.integration_source_id = p_integration_source_id
+               AND n.notification_type = 'MISSING_COA_ACCOUNT'
+               AND n.entity_type = 'IncomeStatementActuals'
+               AND n.source_property_id::text = t.source_property_id::text
+               AND n.source_account_number::text = t.account_number::text
+               AND n.status = 'OPEN'
+         );
+
+       -- 4. Bulk upsert canonical actuals (using DISTINCT ON to prevent duplicate conflict values)
+       SELECT COUNT(*)
+       INTO v_updated_count
+       FROM (
+           SELECT DISTINCT ON (
+               t.company_id,
+               t.organisation_id,
+               t.integration_source_id,
+               t.resolved_property_id,
+               t.fiscal_year,
+               DATE_TRUNC('month', t.post_month)::date,
+               t.gl_tree_id,
+               t.gl_book_id,
+               t.account_number
+           ) t.*
+           FROM tmp_resolved_rows t
+           ORDER BY
+               t.company_id,
+               t.organisation_id,
+               t.integration_source_id,
+               t.resolved_property_id,
+               t.fiscal_year,
+               DATE_TRUNC('month', t.post_month)::date,
+               t.gl_tree_id,
+               t.gl_book_id,
+               t.account_number,
+               t.staging_row_id DESC
+       ) t
+       JOIN public.property_income_statement_actuals pisa
+         ON pisa.company_id = p_company_id
+        AND pisa.organisation_id = p_organisation_id
+        AND pisa.integration_source_id = p_integration_source_id
+        AND pisa.property_id = t.resolved_property_id
+        AND pisa.fiscal_year = t.fiscal_year
+        AND pisa.post_month = DATE_TRUNC('month', t.post_month)::date
+        AND COALESCE(pisa.gl_tree_id, '') = COALESCE(t.gl_tree_id, '')
+        AND COALESCE(pisa.gl_book_id, '') = COALESCE(t.gl_book_id, '')
+        AND pisa.account_number = t.account_number;
+
+       INSERT INTO public.property_income_statement_actuals
+       (
+           id,
+           company_id,
+           organisation_id,
+           integration_source_id,
+           sync_run_id,
+           report_log_id,
+           property_id,
+           property_code,
+           source_property_id,
+           fiscal_year,
+           post_month,
+           gl_tree_id,
+           gl_book_id,
+           accounting_method,
+           coa_id,
+           account_number,
+           account_name,
+           gl_account_type_id,
+           account_path,
+           actual_amount,
+           total_amount,
+           source_system,
+           raw_record_payload,
+           imported_at,
+           created_at,
+           updated_at
+       )
+       SELECT DISTINCT ON (
+           t.company_id,
+           t.organisation_id,
+           t.integration_source_id,
+           t.resolved_property_id,
+           t.fiscal_year,
+           DATE_TRUNC('month', t.post_month)::date,
+           t.gl_tree_id,
+           t.gl_book_id,
+           t.account_number
+       )
+           gen_random_uuid(),
+           t.company_id,
+           t.organisation_id,
+           t.integration_source_id,
+           t.sync_run_id,
+           t.report_log_id,
+           t.resolved_property_id,
+           t.resolved_property_code,
+           t.source_property_id,
+           t.fiscal_year,
+           DATE_TRUNC('month', t.post_month)::date,
+           t.gl_tree_id,
+           t.gl_book_id,
+           t.accounting_method,
+           t.resolved_gl_account_id,
+           t.account_number,
+           COALESCE(t.resolved_gl_account_name, t.sia_account_name),
+           t.gl_account_type_id,
+           t.account_path,
+           COALESCE(t.actual_amount, 0),
+           t.total_amount,
+           'ENTRATA_INCOME_STATEMENT_REPORT',
+           t.raw_record_payload,
+           v_now,
+           v_now,
+           v_now
+       FROM tmp_resolved_rows t
+       ORDER BY
+           t.company_id,
+           t.organisation_id,
+           t.integration_source_id,
+           t.resolved_property_id,
+           t.fiscal_year,
+           DATE_TRUNC('month', t.post_month)::date,
+           t.gl_tree_id,
+           t.gl_book_id,
+           t.account_number,
+           t.staging_row_id DESC
+       ON CONFLICT
+       (
+           company_id,
+           organisation_id,
+           integration_source_id,
+           property_id,
+           fiscal_year,
+           post_month,
+           gl_tree_id,
+           gl_book_id,
+           account_number
+       )
+       DO UPDATE SET
+           sync_run_id = EXCLUDED.sync_run_id,
+           report_log_id = EXCLUDED.report_log_id,
+           property_code = EXCLUDED.property_code,
+           source_property_id = EXCLUDED.source_property_id,
+           gl_tree_id = EXCLUDED.gl_tree_id,
+           gl_book_id = EXCLUDED.gl_book_id,
+           accounting_method = EXCLUDED.accounting_method,
+           coa_id = EXCLUDED.coa_id,
+           account_name = EXCLUDED.account_name,
+           gl_account_type_id = EXCLUDED.gl_account_type_id,
+           account_path = EXCLUDED.account_path,
+           actual_amount = EXCLUDED.actual_amount,
+           total_amount = EXCLUDED.total_amount,
+           raw_record_payload = EXCLUDED.raw_record_payload,
+           imported_at = EXCLUDED.imported_at,
+           updated_at = EXCLUDED.updated_at;
+
+       GET DIAGNOSTICS v_inserted_count = ROW_COUNT;
+       v_inserted_count := v_inserted_count - v_updated_count;
+
+       -- Count warning rows
+       SELECT COUNT(*)
+       INTO v_warning_count
+       FROM tmp_resolved_rows t
+       WHERE t.resolved_gl_account_id IS NULL;
+
+       -- 5. Bulk update staging table statuses
+       UPDATE public.staging_income_statement_actuals sia
+       SET
+           property_id = t.resolved_property_id,
+           property_code = t.resolved_property_code,
+           transform_status =
+               CASE
+                   WHEN t.resolved_gl_account_id IS NULL THEN 'TRANSFORMED_WITH_WARNING'
+                   ELSE 'TRANSFORMED'
+               END,
+           transform_errors =
+               CASE
+                   WHEN t.resolved_gl_account_id IS NULL THEN
+                       jsonb_build_object(
+                           'warning', 'MISSING_COA_ACCOUNT',
+                           'message', 'Account not found in gl_accounts. Transformed into property_income_statement_actuals using source account number/name.',
+                           'gl_tree_id', t.gl_tree_id,
+                           'account_number', t.account_number,
+                           'account_name', t.sia_account_name
+                       )
+                   ELSE
+                       NULL
+               END,
+           transformed_at = v_now,
+           updated_at = v_now
+       FROM tmp_resolved_rows t
+       WHERE sia.id = t.staging_row_id;
+
+       inserted_count := v_inserted_count;
+       updated_count := v_updated_count;
+       warning_count := v_warning_count;
+       failed_count := v_failed_count;
+
+       RETURN NEXT;
+   END;
+   $function$;
+   ```
+
+3. Redefine `fn_project_actuals_from_income_statement_actuals` to remove missing columns:
+   ```sql
+   CREATE OR REPLACE FUNCTION public.fn_project_actuals_from_income_statement_actuals(
+       p_company_id uuid,
+       p_organisation_id uuid,
+       p_integration_source_id uuid,
+       p_sync_run_id uuid DEFAULT NULL::uuid,
+       p_property_id uuid DEFAULT NULL::uuid,
+       p_fiscal_year integer DEFAULT NULL::integer
+   )
+    RETURNS TABLE(property_id uuid, fiscal_year integer, snapshot_id uuid, calc_lines_upserted integer)
+    LANGUAGE plpgsql
+   AS $function$
+   DECLARE
+       v_combo record;
+       v_line record;
+
+       v_snapshot_id uuid;
+       v_existing_line_id uuid;
+
+       v_calc_lines_upserted integer;
+       v_now timestamp(3) := CURRENT_TIMESTAMP;
+   BEGIN
+       FOR v_combo IN
+           SELECT DISTINCT
+               pisa.property_id,
+               pisa.fiscal_year
+           FROM public.property_income_statement_actuals pisa
+           WHERE pisa.company_id = p_company_id
+             AND pisa.organisation_id = p_organisation_id
+             AND pisa.integration_source_id = p_integration_source_id
+             AND pisa.property_id IS NOT NULL
+             AND pisa.fiscal_year IS NOT NULL
+             AND pisa.account_number IS NOT NULL
+             AND COALESCE(pisa.source_system, '') = 'ENTRATA_INCOME_STATEMENT_REPORT'
+             AND (p_sync_run_id IS NULL OR pisa.sync_run_id = p_sync_run_id)
+             AND (p_property_id IS NULL OR pisa.property_id = p_property_id)
+             AND (p_fiscal_year IS NULL OR pisa.fiscal_year = p_fiscal_year)
+           ORDER BY
+               pisa.property_id,
+               pisa.fiscal_year
+       LOOP
+           v_snapshot_id := NULL;
+           v_calc_lines_upserted := 0;
+
+           -- 1. Find existing ACTUALS snapshot for property/year
+           SELECT bs.snapshot_id
+           INTO v_snapshot_id
+           FROM public.budget_snapshots bs
+           WHERE bs.company_id = p_company_id
+             AND bs.organisation_id = p_organisation_id
+             AND bs.property_id = v_combo.property_id
+             AND bs.fiscal_year = v_combo.fiscal_year
+             AND bs.snapshot_type = 'ACTUALS'
+           LIMIT 1;
+
+           -- 2. Create ACTUALS snapshot if missing (removing non-existent columns)
+           IF v_snapshot_id IS NULL THEN
+               v_snapshot_id := gen_random_uuid();
+
+               INSERT INTO public.budget_snapshots
+               (
+                   snapshot_id,
+                   company_id,
+                   organisation_id,
+                   property_id,
+                   fiscal_year,
+                   snapshot_type,
+                   status,
+                   source_system,
+                   source_batch_id,
+                   created_at,
+                   updated_at
+               )
+               VALUES
+               (
+                   v_snapshot_id,
+                   p_company_id,
+                   p_organisation_id,
+                   v_combo.property_id,
+                   v_combo.fiscal_year,
+                   'ACTUALS',
+                   'ACTIVE',
+                   'ENTRATA',
+                   p_sync_run_id,
+                   v_now,
+                   v_now
+               );
+           END IF;
+
+           -- 3. Loop through accounts & map to Chart of Accounts
+           FOR v_line IN
+               WITH monthly_actuals AS
+               (
+                   SELECT
+                       pisa.property_id,
+                       pisa.fiscal_year,
+                       pisa.account_number AS account_code,
+                       MAX(pisa.account_name) AS account_name,
+
+                       SUM(CASE WHEN EXTRACT(MONTH FROM pisa.post_month)::integer = 1 THEN COALESCE(pisa.actual_amount, 0) ELSE 0 END) AS jan_amount,
+                       SUM(CASE WHEN EXTRACT(MONTH FROM pisa.post_month)::integer = 2 THEN COALESCE(pisa.actual_amount, 0) ELSE 0 END) AS feb_amount,
+                       SUM(CASE WHEN EXTRACT(MONTH FROM pisa.post_month)::integer = 3 THEN COALESCE(pisa.actual_amount, 0) ELSE 0 END) AS mar_amount,
+                       SUM(CASE WHEN EXTRACT(MONTH FROM pisa.post_month)::integer = 4 THEN COALESCE(pisa.actual_amount, 0) ELSE 0 END) AS apr_amount,
+                       SUM(CASE WHEN EXTRACT(MONTH FROM pisa.post_month)::integer = 5 THEN COALESCE(pisa.actual_amount, 0) ELSE 0 END) AS may_amount,
+                       SUM(CASE WHEN EXTRACT(MONTH FROM pisa.post_month)::integer = 6 THEN COALESCE(pisa.actual_amount, 0) ELSE 0 END) AS jun_amount,
+                       SUM(CASE WHEN EXTRACT(MONTH FROM pisa.post_month)::integer = 7 THEN COALESCE(pisa.actual_amount, 0) ELSE 0 END) AS jul_amount,
+                       SUM(CASE WHEN EXTRACT(MONTH FROM pisa.post_month)::integer = 8 THEN COALESCE(pisa.actual_amount, 0) ELSE 0 END) AS aug_amount,
+                       SUM(CASE WHEN EXTRACT(MONTH FROM pisa.post_month)::integer = 9 THEN COALESCE(pisa.actual_amount, 0) ELSE 0 END) AS sep_amount,
+                       SUM(CASE WHEN EXTRACT(MONTH FROM pisa.post_month)::integer = 10 THEN COALESCE(pisa.actual_amount, 0) ELSE 0 END) AS oct_amount,
+                       SUM(CASE WHEN EXTRACT(MONTH FROM pisa.post_month)::integer = 11 THEN COALESCE(pisa.actual_amount, 0) ELSE 0 END) AS nov_amount,
+                       SUM(CASE WHEN EXTRACT(MONTH FROM pisa.post_month)::integer = 12 THEN COALESCE(pisa.actual_amount, 0) ELSE 0 END) AS dec_amount,
+                       SUM(COALESCE(pisa.actual_amount, 0)) AS full_year_amount
+                   FROM public.property_income_statement_actuals pisa
+                   WHERE pisa.company_id = p_company_id
+                     AND pisa.organisation_id = p_organisation_id
+                     AND pisa.integration_source_id = p_integration_source_id
+                     AND pisa.property_id = v_combo.property_id
+                     AND pisa.fiscal_year = v_combo.fiscal_year
+                     AND pisa.account_number IS NOT NULL
+                     AND COALESCE(pisa.source_system, '') = 'ENTRATA_INCOME_STATEMENT_REPORT'
+                   GROUP BY
+                       pisa.property_id,
+                       pisa.fiscal_year,
+                       pisa.account_number
+               ),
+               line_rows AS
+               (
+                   SELECT
+                       ma.*,
+                       coa.coa_id,
+                       coa.group_name AS account_group,
+                       ROW_NUMBER() OVER(ORDER BY ma.account_code, ma.account_name) AS sort_order
+                   FROM monthly_actuals ma
+                   LEFT JOIN public.fn_get_coa_for_property(p_company_id, p_organisation_id, v_combo.property_id) coa
+                     ON ma.account_code = coa.account_code
+               )
+               SELECT *
+               FROM line_rows
+               ORDER BY sort_order
+           LOOP
+               v_existing_line_id := NULL;
+
+               -- 4. Find existing budget_calc_lines row by snapshot/account
+               SELECT bcl.calc_line_id
+               INTO v_existing_line_id
+               FROM public.budget_calc_lines bcl
+               WHERE bcl.snapshot_id = v_snapshot_id
+                 AND bcl.account_code::text = v_line.account_code::text
+               LIMIT 1;
+
+               IF v_existing_line_id IS NOT NULL THEN
+                   -- 5A. Update existing line
+                   UPDATE public.budget_calc_lines bcl
+                   SET
+                       company_id = p_company_id,
+                       organisation_id = p_organisation_id,
+                       property_id = v_combo.property_id,
+                       fiscal_year = v_combo.fiscal_year,
+                       snapshot_type = 'ACTUALS',
+
+                       coa_id = v_line.coa_id,
+                       account_code = v_line.account_code,
+                       account_name = v_line.account_name,
+                       account_group = v_line.account_group,
+
+                       line_code = v_line.account_code,
+                       line_name = v_line.account_name,
+                       line_type = COALESCE(bcl.line_type, 'ACCOUNT'),
+
+                       jan_amount = COALESCE(v_line.jan_amount, 0),
+                       feb_amount = COALESCE(v_line.feb_amount, 0),
+                       mar_amount = COALESCE(v_line.mar_amount, 0),
+                       apr_amount = COALESCE(v_line.apr_amount, 0),
+                       may_amount = COALESCE(v_line.may_amount, 0),
+                       jun_amount = COALESCE(v_line.jun_amount, 0),
+                       jul_amount = COALESCE(v_line.jul_amount, 0),
+                       aug_amount = COALESCE(v_line.aug_amount, 0),
+                       sep_amount = COALESCE(v_line.sep_amount, 0),
+                       oct_amount = COALESCE(v_line.oct_amount, 0),
+                       nov_amount = COALESCE(v_line.nov_amount, 0),
+                       dec_amount = COALESCE(v_line.dec_amount, 0),
+                       full_year_amount = COALESCE(v_line.full_year_amount, 0),
+
+                       notes =
+                           CASE
+                               WHEN v_line.coa_id IS NULL THEN
+                                   'Projected from Entrata income_statement report. COA account was not mapped.'
+                               ELSE
+                                   bcl.notes
+                           END,
+
+                       updated_at = v_now
+                   WHERE bcl.calc_line_id = v_existing_line_id;
+               ELSE
+                   -- 5B. Insert new line
+                   INSERT INTO public.budget_calc_lines
+                   (
+                       calc_line_id,
+                       snapshot_id,
+                       company_id,
+                       organisation_id,
+                       property_id,
+                       fiscal_year,
+                       snapshot_type,
+
+                       coa_id,
+                       account_code,
+                       account_name,
+                       account_group,
+
+                       line_code,
+                       line_name,
+                       line_type,
+                       parent_line_code,
+                       sort_order,
+
+                       is_editable,
+                       is_calculated,
+                       is_reference,
+                       formula_json,
+
+                       jan_amount,
+                       feb_amount,
+                       mar_amount,
+                       apr_amount,
+                       may_amount,
+                       jun_amount,
+                       jul_amount,
+                       aug_amount,
+                       sep_amount,
+                       oct_amount,
+                       nov_amount,
+                       dec_amount,
+                       full_year_amount,
+
+                       notes,
+                       created_at,
+                       updated_at
+                   )
+                   VALUES
+                   (
+                       gen_random_uuid(),
+                       v_snapshot_id,
+                       p_company_id,
+                       p_organisation_id,
+                       v_combo.property_id,
+                       v_combo.fiscal_year,
+                       'ACTUALS',
+
+                       v_line.coa_id,
+                       v_line.account_code,
+                       v_line.account_name,
+                       v_line.account_group,
+
+                       v_line.account_code,
+                       v_line.account_name,
+                       'ACCOUNT',
+                       NULL,
+                       v_line.sort_order,
+
+                       false,
+                       false,
+                       false,
+                       NULL,
+
+                       COALESCE(v_line.jan_amount, 0),
+                       COALESCE(v_line.feb_amount, 0),
+                       COALESCE(v_line.mar_amount, 0),
+                       COALESCE(v_line.apr_amount, 0),
+                       COALESCE(v_line.may_amount, 0),
+                       COALESCE(v_line.jun_amount, 0),
+                       COALESCE(v_line.jul_amount, 0),
+                       COALESCE(v_line.aug_amount, 0),
+                       COALESCE(v_line.sep_amount, 0),
+                       COALESCE(v_line.oct_amount, 0),
+                       COALESCE(v_line.nov_amount, 0),
+                       COALESCE(v_line.dec_amount, 0),
+                       COALESCE(v_line.full_year_amount, 0),
+
+                       CASE
+                           WHEN v_line.coa_id IS NULL THEN
+                               'Projected from Entrata income_statement report. COA account was not mapped.'
+                           ELSE
+                               NULL
+                       END,
+
+                       v_now,
+                       v_now
+                   );
+               END IF;
+
+               v_calc_lines_upserted := v_calc_lines_upserted + 1;
+           END LOOP;
+
+           property_id := v_combo.property_id;
+           fiscal_year := v_combo.fiscal_year;
+           snapshot_id := v_snapshot_id;
+           calc_lines_upserted := v_calc_lines_upserted;
+
+           RETURN NEXT;
+       END LOOP;
+
+       RETURN;
+   END;
+   $function$;
+   ```
+
+3. Redefine `fn_sync_actuals_to_reforecast` (supports null property and reforecastCutoffMonth):
+   ```sql
+   CREATE OR REPLACE FUNCTION public.fn_sync_actuals_to_reforecast(
+       p_company_id uuid,
+       p_organisation_id uuid,
+       p_property_id uuid,
+       p_fiscal_year integer,
+       p_created_by uuid DEFAULT NULL::uuid,
+       p_reforecast_cutoff_month character varying DEFAULT '2026-06'::character varying
+   )
+    RETURNS TABLE(success boolean, message text, actuals_snapshot_id uuid, reforecast_snapshot_id uuid, inserted_calc_line_count integer, updated_calc_line_count integer)
+    LANGUAGE plpgsql
+   AS $function$
+   DECLARE
+       v_prop record;
+       
+       v_actuals_snapshot_id uuid;
+       v_reforecast_snapshot_id uuid;
+       v_inserted_calc_line_count integer := 0;
+       v_updated_calc_line_count integer := 0;
+       v_existing_calc_line_count integer := 0;
+       
+       v_cutoff_month_part integer := 6;
+       v_fiscal_start_month integer := 1;
+       v_cutoff_month_index integer := 6;
+       
+       v_total_inserted integer := 0;
+       v_total_updated integer := 0;
+       v_props_synced integer := 0;
+   BEGIN
+       -- 1. Parse reforecast cutoff month index
+       IF p_reforecast_cutoff_month IS NOT NULL AND p_reforecast_cutoff_month LIKE '%-%' THEN
+           v_cutoff_month_part := split_part(p_reforecast_cutoff_month, '-', 2)::integer;
+       END IF;
+
+       -- 2. Loop through all matching properties
+       FOR v_prop IN
+           SELECT DISTINCT bs.property_id
+           FROM public.budget_snapshots bs
+           WHERE bs.company_id = p_company_id
+             AND bs.organisation_id = p_organisation_id
+             AND bs.fiscal_year = p_fiscal_year
+             AND bs.snapshot_type = 'ACTUALS'
+             AND (p_property_id IS NULL OR bs.property_id = p_property_id)
+           ORDER BY bs.property_id
+       LOOP
+           v_actuals_snapshot_id := NULL;
+           v_reforecast_snapshot_id := NULL;
+           v_inserted_calc_line_count := 0;
+           v_updated_calc_line_count := 0;
+           v_existing_calc_line_count := 0;
+
+           -- 2.1 Resolve fiscal year start month for the property
+           SELECT COALESCE(
+               (SELECT CASE 
+                   WHEN pyc.fiscal_year IS NOT NULL THEN 1
+                   ELSE 1
+                END
+                FROM public.property_year_configuration pyc
+                WHERE pyc.company_id = p_company_id
+                  AND pyc.organisation_id = p_organisation_id
+                  AND pyc.property_id = v_prop.property_id
+                  AND pyc.fiscal_year = p_fiscal_year
+                LIMIT 1), 1
+           ) INTO v_fiscal_start_month;
+
+           v_cutoff_month_index := ((v_cutoff_month_part - v_fiscal_start_month + 12) % 12) + 1;
+
+           -- 2.2 Find source ACTUALS snapshot
+           SELECT bs.snapshot_id
+           INTO v_actuals_snapshot_id
+           FROM public.budget_snapshots bs
+           WHERE bs.company_id = p_company_id
+             AND bs.organisation_id = p_organisation_id
+             AND bs.property_id = v_prop.property_id
+             AND bs.fiscal_year = p_fiscal_year
+             AND bs.snapshot_type = 'ACTUALS'
+           ORDER BY
+               COALESCE(bs.revision_no, 0) DESC,
+               bs.created_at DESC
+           LIMIT 1;
+
+           IF v_actuals_snapshot_id IS NOT NULL THEN
+               -- 2.3 Find or create REFORECAST snapshot
+               SELECT bs.snapshot_id
+               INTO v_reforecast_snapshot_id
+               FROM public.budget_snapshots bs
+               WHERE bs.company_id = p_company_id
+                 AND bs.organisation_id = p_organisation_id
+                 AND bs.property_id = v_prop.property_id
+                 AND bs.fiscal_year = p_fiscal_year
+                 AND bs.snapshot_type = 'REFORECAST'
+               ORDER BY
+                   COALESCE(bs.revision_no, 0) DESC,
+                   bs.created_at DESC
+               LIMIT 1;
+
+               IF v_reforecast_snapshot_id IS NULL THEN
+                   INSERT INTO public.budget_snapshots (
+                       snapshot_id,
+                       company_id,
+                       organisation_id,
+                       property_id,
+                       fiscal_year,
+                       snapshot_type,
+                       status,
+                       source_snapshot_id,
+                       forecast_basis,
+                       forecast_method,
+                       revision_no,
+                       source_system,
+                       source_batch_id,
+                       imported_at,
+                       generated_by,
+                       generated_at,
+                       submitted_by,
+                       submitted_at,
+                       approved_by,
+                       approved_at,
+                       created_by,
+                       created_at,
+                       updated_by,
+                       updated_at
+                   )
+                   SELECT
+                       gen_random_uuid() AS snapshot_id,
+                       bs.company_id,
+                       bs.organisation_id,
+                       bs.property_id,
+                       bs.fiscal_year,
+                       'REFORECAST' AS snapshot_type,
+                       'ACTIVE' AS status,
+                       bs.snapshot_id AS source_snapshot_id,
+                       bs.forecast_basis,
+                       bs.forecast_method,
+                       1 AS revision_no,
+                       bs.source_system,
+                       bs.source_batch_id,
+                       bs.imported_at,
+                       bs.generated_by,
+                       bs.generated_at,
+                       bs.submitted_by,
+                       bs.submitted_at,
+                       bs.approved_by,
+                       bs.approved_at,
+                       COALESCE(p_created_by, bs.created_by) AS created_by,
+                       CURRENT_TIMESTAMP AS created_at,
+                       COALESCE(p_created_by, bs.updated_by) AS updated_by,
+                       CURRENT_TIMESTAMP AS updated_at
+                   FROM public.budget_snapshots bs
+                   WHERE bs.snapshot_id = v_actuals_snapshot_id
+                   RETURNING snapshot_id
+                   INTO v_reforecast_snapshot_id;
+               END IF;
+
+               -- 2.4 Update existing REFORECAST calc lines matching strictly by line_code
+               UPDATE public.budget_calc_lines rbcl
+               SET
+                   jan_amount = CASE WHEN v_cutoff_month_index >= 1 THEN abcl.jan_amount ELSE rbcl.jan_amount END,
+                   feb_amount = CASE WHEN v_cutoff_month_index >= 2 THEN abcl.feb_amount ELSE rbcl.feb_amount END,
+                   mar_amount = CASE WHEN v_cutoff_month_index >= 3 THEN abcl.mar_amount ELSE rbcl.mar_amount END,
+                   apr_amount = CASE WHEN v_cutoff_month_index >= 4 THEN abcl.apr_amount ELSE rbcl.apr_amount END,
+                   may_amount = CASE WHEN v_cutoff_month_index >= 5 THEN abcl.may_amount ELSE rbcl.may_amount END,
+                   jun_amount = CASE WHEN v_cutoff_month_index >= 6 THEN abcl.jun_amount ELSE rbcl.jun_amount END,
+                   jul_amount = CASE WHEN v_cutoff_month_index >= 7 THEN abcl.jul_amount ELSE rbcl.jul_amount END,
+                   aug_amount = CASE WHEN v_cutoff_month_index >= 8 THEN abcl.aug_amount ELSE rbcl.aug_amount END,
+                   sep_amount = CASE WHEN v_cutoff_month_index >= 9 THEN abcl.sep_amount ELSE rbcl.sep_amount END,
+                   oct_amount = CASE WHEN v_cutoff_month_index >= 10 THEN abcl.oct_amount ELSE rbcl.oct_amount END,
+                   nov_amount = CASE WHEN v_cutoff_month_index >= 11 THEN abcl.nov_amount ELSE rbcl.nov_amount END,
+                   dec_amount = CASE WHEN v_cutoff_month_index >= 12 THEN abcl.dec_amount ELSE rbcl.dec_amount END,
+                   full_year_amount = 
+                       (CASE WHEN v_cutoff_month_index >= 1 THEN abcl.jan_amount ELSE rbcl.jan_amount END) +
+                       (CASE WHEN v_cutoff_month_index >= 2 THEN abcl.feb_amount ELSE rbcl.feb_amount END) +
+                       (CASE WHEN v_cutoff_month_index >= 3 THEN abcl.mar_amount ELSE rbcl.mar_amount END) +
+                       (CASE WHEN v_cutoff_month_index >= 4 THEN abcl.apr_amount ELSE rbcl.apr_amount END) +
+                       (CASE WHEN v_cutoff_month_index >= 5 THEN abcl.may_amount ELSE rbcl.may_amount END) +
+                       (CASE WHEN v_cutoff_month_index >= 6 THEN abcl.jun_amount ELSE rbcl.jun_amount END) +
+                       (CASE WHEN v_cutoff_month_index >= 7 THEN abcl.jul_amount ELSE rbcl.jul_amount END) +
+                       (CASE WHEN v_cutoff_month_index >= 8 THEN abcl.aug_amount ELSE rbcl.aug_amount END) +
+                       (CASE WHEN v_cutoff_month_index >= 9 THEN abcl.sep_amount ELSE rbcl.sep_amount END) +
+                       (CASE WHEN v_cutoff_month_index >= 10 THEN abcl.oct_amount ELSE rbcl.oct_amount END) +
+                       (CASE WHEN v_cutoff_month_index >= 11 THEN abcl.nov_amount ELSE rbcl.nov_amount END) +
+                       (CASE WHEN v_cutoff_month_index >= 12 THEN abcl.dec_amount ELSE rbcl.dec_amount END),
+                   updated_at = CURRENT_TIMESTAMP
+               FROM public.budget_calc_lines abcl
+               WHERE rbcl.snapshot_id = v_reforecast_snapshot_id
+                 AND rbcl.snapshot_type = 'REFORECAST'
+                 AND abcl.snapshot_id = v_actuals_snapshot_id
+                 AND abcl.snapshot_type = 'ACTUALS'
+                 AND rbcl.company_id = abcl.company_id
+                 AND rbcl.organisation_id = abcl.organisation_id
+                 AND rbcl.property_id = abcl.property_id
+                 AND rbcl.fiscal_year = abcl.fiscal_year
+                 AND rbcl.line_code = abcl.line_code;
+
+               GET DIAGNOSTICS v_updated_calc_line_count = ROW_COUNT;
+
+               -- 2.5 Insert missing ACTUALS calc lines (filtering strictly by line_code unique key)
+               INSERT INTO public.budget_calc_lines (
+                   calc_line_id,
+                   snapshot_id,
+                   company_id,
+                   organisation_id,
+                   property_id,
+                   fiscal_year,
+                   snapshot_type,
+                   coa_id,
+                   account_code,
+                   account_name,
+                   account_group,
+                   line_code,
+                   line_name,
+                   line_type,
+                   parent_line_code,
+                   sort_order,
+                   is_editable,
+                   is_calculated,
+                   is_reference,
+                   formula_json,
+                   jan_amount,
+                   feb_amount,
+                   mar_amount,
+                   apr_amount,
+                   may_amount,
+                   jun_amount,
+                   jul_amount,
+                   aug_amount,
+                   sep_amount,
+                   oct_amount,
+                   nov_amount,
+                   dec_amount,
+                   full_year_amount,
+                   notes,
+                   created_at,
+                   updated_at
+               )
+               SELECT
+                   gen_random_uuid() AS calc_line_id,
+                   v_reforecast_snapshot_id AS snapshot_id,
+                   abcl.company_id,
+                   abcl.organisation_id,
+                   abcl.property_id,
+                   abcl.fiscal_year,
+                   'REFORECAST' AS snapshot_type,
+                   abcl.coa_id,
+                   abcl.account_code,
+                   abcl.account_name,
+                   abcl.account_group,
+                   abcl.line_code,
+                   abcl.line_name,
+                   abcl.line_type,
+                   abcl.parent_line_code,
+                   abcl.sort_order,
+                   abcl.is_editable,
+                   abcl.is_calculated,
+                   abcl.is_reference,
+                   abcl.formula_json,
+                   CASE WHEN v_cutoff_month_index >= 1 THEN abcl.jan_amount ELSE 0 END,
+                   CASE WHEN v_cutoff_month_index >= 2 THEN abcl.feb_amount ELSE 0 END,
+                   CASE WHEN v_cutoff_month_index >= 3 THEN abcl.mar_amount ELSE 0 END,
+                   CASE WHEN v_cutoff_month_index >= 4 THEN abcl.apr_amount ELSE 0 END,
+                   CASE WHEN v_cutoff_month_index >= 5 THEN abcl.may_amount ELSE 0 END,
+                   CASE WHEN v_cutoff_month_index >= 6 THEN abcl.jun_amount ELSE 0 END,
+                   CASE WHEN v_cutoff_month_index >= 7 THEN abcl.jul_amount ELSE 0 END,
+                   CASE WHEN v_cutoff_month_index >= 8 THEN abcl.aug_amount ELSE 0 END,
+                   CASE WHEN v_cutoff_month_index >= 9 THEN abcl.sep_amount ELSE 0 END,
+                   CASE WHEN v_cutoff_month_index >= 10 THEN abcl.oct_amount ELSE 0 END,
+                   CASE WHEN v_cutoff_month_index >= 11 THEN abcl.nov_amount ELSE 0 END,
+                   CASE WHEN v_cutoff_month_index >= 12 THEN abcl.dec_amount ELSE 0 END,
+                   (CASE WHEN v_cutoff_month_index >= 1 THEN abcl.jan_amount ELSE 0 END) +
+                   (CASE WHEN v_cutoff_month_index >= 2 THEN abcl.feb_amount ELSE 0 END) +
+                   (CASE WHEN v_cutoff_month_index >= 3 THEN abcl.mar_amount ELSE 0 END) +
+                   (CASE WHEN v_cutoff_month_index >= 4 THEN abcl.apr_amount ELSE 0 END) +
+                   (CASE WHEN v_cutoff_month_index >= 5 THEN abcl.may_amount ELSE 0 END) +
+                   (CASE WHEN v_cutoff_month_index >= 6 THEN abcl.jun_amount ELSE 0 END) +
+                   (CASE WHEN v_cutoff_month_index >= 7 THEN abcl.jul_amount ELSE 0 END) +
+                   (CASE WHEN v_cutoff_month_index >= 8 THEN abcl.aug_amount ELSE 0 END) +
+                   (CASE WHEN v_cutoff_month_index >= 9 THEN abcl.sep_amount ELSE 0 END) +
+                   (CASE WHEN v_cutoff_month_index >= 10 THEN abcl.oct_amount ELSE 0 END) +
+                   (CASE WHEN v_cutoff_month_index >= 11 THEN abcl.nov_amount ELSE 0 END) +
+                   (CASE WHEN v_cutoff_month_index >= 12 THEN abcl.dec_amount ELSE 0 END),
+                   abcl.notes,
+                   CURRENT_TIMESTAMP AS created_at,
+                   CURRENT_TIMESTAMP AS updated_at
+               FROM public.budget_calc_lines abcl
+               WHERE abcl.snapshot_id = v_actuals_snapshot_id
+                 AND abcl.snapshot_type = 'ACTUALS'
+                 AND NOT EXISTS (
+                     SELECT 1
+                     FROM public.budget_calc_lines rbcl
+                     WHERE rbcl.snapshot_id = v_reforecast_snapshot_id
+                       AND rbcl.snapshot_type = 'REFORECAST'
+                       AND rbcl.line_code = abcl.line_code
+                 );
+
+               GET DIAGNOSTICS v_inserted_calc_line_count = ROW_COUNT;
+               
+               v_total_inserted := v_total_inserted + v_inserted_calc_line_count;
+               v_total_updated := v_total_updated + v_updated_calc_line_count;
+               v_props_synced := v_props_synced + 1;
+           END IF;
+       END LOOP;
+
+       success := true;
+       message := 'REFORECAST snapshots synced successfully for ' || v_props_synced || ' properties with cutoff ' || p_reforecast_cutoff_month;
+       actuals_snapshot_id := NULL;
+       reforecast_snapshot_id := NULL;
+       inserted_calc_line_count := v_total_inserted;
+       updated_calc_line_count := v_total_updated;
+       
+       RETURN NEXT;
+       RETURN;
+
+   EXCEPTION
+       WHEN OTHERS THEN
+           success := false;
+           message := SQLERRM;
+           actuals_snapshot_id := NULL;
+           reforecast_snapshot_id := NULL;
+           inserted_calc_line_count := 0;
+           updated_calc_line_count := 0;
+           RETURN NEXT;
+           RETURN;
+   END;
+   $function$;
+   ```
+
+### Step 2.2: Commit and Push Code
+
+Run the following git commands in your repository terminal:
+
+```bash
+# Verify modified files
+git status
+
+# Add all changes
+git add apps/api/src/modules/integration/integration-sync.controller.ts
+git add apps/api/src/modules/integration/dto/sync-income-statement-actuals-request.dto.ts
+git add apps/api/src/modules/integration/dto/sync-report-data-request.dto.ts
+git add apps/worker/src/jobs/stage-income-statement-actuals.job.ts
+git add apps/worker/src/jobs/sync-entrata-income-statement-actuals.job.ts
+git add apps/worker/src/jobs/process-income-statement-property.job.ts
+git add packages/integration-core/src/queues/job-types.ts
+git add packages/integration-core/src/projection/budget-snapshot-projection.service.ts
+git add packages/integration-core/src/transformers/entrata-budget.transformer.ts
+
+# Commit changes
+git commit -m "feat: optimize pipeline performance, fix timezone date-drift, and add reforecastCutoffMonth parameter"
+
+# Push to your UAT/deployment branch
+git push origin <your-uat-branch-name>
+```
+================================================================================

@@ -1,0 +1,2378 @@
+model User {
+  id                             String                       @id @default(uuid()) @db.Uuid
+  principalType                  UserPrincipalType            @default(COMPANY)
+  status                         UserStatus                   @default(INVITED)
+  firstName                      String
+  lastName                       String
+  displayName                    String?
+  email                          String                       @unique
+  phone                          String?
+  designation                    String?
+  notes                          String?
+  profileMetadata                Json?
+  lastLoginAt                    DateTime?
+  passwordChangedAt              DateTime?
+  isSystemHidden                 Boolean                      @default(false)
+  companyId                      String?                      @db.Uuid
+  organisationId                 String?                      @db.Uuid
+  isPrimaryCompanyAdmin          Boolean                      @default(false)
+  isRootOrganisationAdmin        Boolean                      @default(false)
+  employeeCode                   String?
+  invitedAt                      DateTime?
+  activatedAt                    DateTime?
+  createdAt                      DateTime                     @default(now())
+  updatedAt                      DateTime                     @updatedAt
+  auditEventsActed               AuditLog[]                   @relation("AuditActorUser")
+  auditEventsImpersonated        AuditLog[]                   @relation("AuditImpersonatedUser")
+  authIdentities                 AuthIdentity[]
+  businessRolesCreated           BusinessRole[]               @relation("BusinessRoleCreatedBy")
+  businessAssignmentsMade        BusinessRoleAssignment[]     @relation("BusinessRoleAssignmentAssignedBy")
+  businessRoleAssignments        BusinessRoleAssignment[]     @relation("UserBusinessRoleAssignment")
+  companiesCreated               Company[]                    @relation("CompanyCreatedBy")
+  companiesModified              Company[]                    @relation("CompanyModifiedBy")
+  organisationsCreated           Organisation[]               @relation("OrganisationCreatedBy")
+  organisationsModified          Organisation[]               @relation("OrganisationModifiedBy")
+  otpChallenges                  OtpChallenge[]
+  passwordCredential             PasswordCredential?
+  managedProperties              Property[]                   @relation("PropertyManager")
+  propertyWorkflowAssignments    PropertyWorkflowAssignment[]
+  workflowCommentsAuthored       PropertyWorkflowComment[]    @relation("PropertyWorkflowCommentActor")
+  assignedProperties             Property[]                   @relation("PropertyAssignedToUser")
+  refreshSessions                RefreshSession[]
+  assignedPropertyReassignments  PropertyReassignment[]       @relation("UserAssignedPropertyReassignments")
+  requestedPropertyReassignments PropertyReassignment[]       @relation("UserRequestedPropertyReassignments")
+  systemRolesCreated             SystemRole[]                 @relation("SystemRoleCreatedBy")
+  systemRolesModified            SystemRole[]                 @relation("SystemRoleModifiedBy")
+  assignedSystemRoles            SystemRoleAssignment[]       @relation("SystemRoleAssignmentAssignedBy")
+  systemRoleAssignments          SystemRoleAssignment[]       @relation("SystemRoleAssignmentUser")
+  company                        Company?                     @relation("UserCompany", fields: [companyId], references: [id])
+  organisation                   Organisation?                @relation("UserOrganisation", fields: [organisationId], references: [id])
+  platformCompanyAccess          UserCompanyAccess[]
+  createdById                    String?                      @db.Uuid
+  modifiedById                   String?                      @db.Uuid
+  createdBy                      User?                        @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  modifiedBy                     User?                        @relation("UserModifiedBy", fields: [modifiedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usersCreated                   User[]                       @relation("UserCreatedBy")
+  usersModified                  User[]                       @relation("UserModifiedBy")
+  userNotifications              UserNotification[]
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([createdById])
+  @@index([modifiedById])
+  @@map("user")
+}
+
+model AuthIdentity {
+  id                  String       @id @default(uuid()) @db.Uuid
+  userId              String       @db.Uuid
+  provider            AuthProvider
+  providerSubject     String
+  loginName           String?
+  email               String?
+  isPrimary           Boolean      @default(false)
+  lastAuthenticatedAt DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  user                User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSubject])
+  @@unique([provider, loginName])
+  @@index([userId])
+  @@map("auth_identity")
+}
+
+model PasswordCredential {
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @unique @db.Uuid
+  passwordHash       String
+  mustChangePassword Boolean   @default(false)
+  failedAttemptCount Int       @default(0)
+  lockedUntil        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_credential")
+}
+
+model OtpChallenge {
+  id                String     @id @default(uuid()) @db.Uuid
+  userId            String     @db.Uuid
+  purpose           OtpPurpose
+  channel           OtpChannel
+  destinationMasked String?
+  codeHash          String
+  expiresAt         DateTime
+  consumedAt        DateTime?
+  attemptCount      Int        @default(0)
+  maxAttempts       Int        @default(5)
+  metadata          Json?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([expiresAt])
+  @@map("otp_challenge")
+}
+
+model RefreshSession {
+  id                  String                      @id @default(uuid()) @db.Uuid
+  userId              String                      @db.Uuid
+  refreshTokenHash    String
+  lastUsedAt          DateTime?
+  deviceName          String?
+  ipAddress           String?
+  userAgent           String?
+  expiresAt           DateTime
+  revokedAt           DateTime?
+  revokedReason       RefreshSessionRevokeReason?
+  replacedBySessionId String?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  user                User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_session")
+}
+
+model SystemRole {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  code               String                     @unique
+  name               String
+  description        String?
+  dashboardKey       String?
+  menuConfig         Json?
+  permissionConfig   Json?
+  isPlatformManaged  Boolean                    @default(true)
+  isActive           Boolean                    @default(true)
+  createdByUserId    String?                    @db.Uuid
+  createdAt          DateTime                   @default(now())
+  updatedByUserId    String?                    @db.Uuid
+  updatedAt          DateTime                   @updatedAt
+  createdByUser      User?                      @relation("SystemRoleCreatedBy", fields: [createdByUserId], references: [id])
+  updatedByUser      User?                      @relation("SystemRoleModifiedBy", fields: [updatedByUserId], references: [id])
+  assignments        SystemRoleAssignment[]
+  pagePermissions    SystemRolePagePermission[]
+  assignedProperties SystemRoleProperty[]
+  workflowSteps      WorkflowStep[]
+
+  @@index([isActive])
+  @@map("system_role")
+}
+
+model SystemRoleAssignment {
+  id               String           @id @default(uuid()) @db.Uuid
+  userId           String           @db.Uuid
+  systemRoleId     String           @db.Uuid
+  scopeType        ScopeType
+  scopeRef         String
+  companyId        String?          @db.Uuid
+  organisationId   String?          @db.Uuid
+  propertyId       String?          @db.Uuid
+  status           AssignmentStatus @default(ACTIVE)
+  isCurrent        Boolean          @default(false)
+  assignedByUserId String?          @db.Uuid
+  assignedAt       DateTime         @default(now())
+  revokedAt        DateTime?
+  notes            String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  assignedByUser   User?            @relation("SystemRoleAssignmentAssignedBy", fields: [assignedByUserId], references: [id])
+  company          Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation     Organisation?    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  property         Property?        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  systemRole       SystemRole       @relation(fields: [systemRoleId], references: [id], onDelete: Cascade)
+  user             User             @relation("SystemRoleAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, systemRoleId, scopeType, scopeRef])
+  @@index([systemRoleId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@map("system_role_assignment")
+}
+
+model NavigationMenuItem {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  code               String
+  label              String
+  icon               String
+  route              String?
+  section            String?
+  sortOrder          Int                        @default(0)
+  scopeType          ScopeType
+  parentId           String?                    @db.Uuid
+  isActive           Boolean                    @default(true)
+  isDisabled         Boolean                    @default(false)
+  permissionCodes    Json?
+  navigationMetadata Json?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  parent             NavigationMenuItem?        @relation("NavigationMenuHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children           NavigationMenuItem[]       @relation("NavigationMenuHierarchy")
+  rolePermissions    SystemRolePagePermission[]
+
+  @@unique([scopeType, code])
+  @@index([scopeType, isActive, sortOrder])
+  @@index([parentId])
+  @@map("navigation_menu_item")
+}
+
+model SystemRolePagePermission {
+  id                   String   @id @default(uuid()) @db.Uuid
+  systemRoleId         String   @db.Uuid
+  navigationMenuItemId String   @db.Uuid
+  canRead              Boolean  @default(false)
+  canCreate            Boolean  @default(false)
+  canEdit              Boolean  @default(false)
+  canDelete            Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  systemRole         SystemRole         @relation(fields: [systemRoleId], references: [id], onDelete: Cascade)
+  navigationMenuItem NavigationMenuItem @relation(fields: [navigationMenuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([systemRoleId, navigationMenuItemId])
+  @@index([systemRoleId])
+  @@index([navigationMenuItemId])
+  @@map("system_role_page_permission")
+}
+
+model Company {
+  id                             String                        @id @default(uuid()) @db.Uuid
+  code                           String                        @unique @map("code") @db.VarChar(100)
+  name                           String                        @db.VarChar(255)
+  isActive                       Boolean                       @default(true) @map("is_actvie")
+  shortDisplayName               String?
+  isSystemInternal               Boolean                       @default(false)
+  industry                       String?
+  onboardingStatus               OnboardingStatus              @default(DRAFT)
+  accessStatus                   AccessStatus                  @default(ACTIVE)
+  registeredAddressLine1         String?
+  registeredAddressLine2         String?
+  registeredCity                 String?
+  registeredState                String?
+  registeredPostalCode           String?
+  registeredCountry              String?
+  primaryContactName             String?
+  primaryContactEmail            String?
+  primaryContactPhone            String?
+  primaryContactDesignation      String?
+  billingContactName             String?
+  billingContactEmail            String?
+  billingContactPhone            String?
+  contractStartDate              DateTime?
+  contractEndDate                DateTime?
+  canCompanyAdminAddOrganisation Boolean                       @default(true)
+  notes                          String?
+  auditCreatedByUserId           String?                       @db.Uuid
+  auditModifiedByUserId          String?                       @db.Uuid
+  createdAt                      DateTime                      @default(now())
+  updatedAt                      DateTime                      @updatedAt
+  globalAssumptions              GlobalAssumption[]
+  periodicDrivers                PeriodicDriver[]
+  proformaScenarios              ProformaScenario[]
+  proformaComparableProperties   ProformaComparableProperty[]
+  proformaDrivers                ProformaDriver[]
+  proformaGlobalAssumptions      ProformaGlobalAssumption[]
+  proformaCoaGlobalAssumptions   ProformaCoaGlobalAssumption[]
+  auditLogs                      AuditLog[]
+  businessRoles                  BusinessRole[]
+  businessRoleAssignments        BusinessRoleAssignment[]
+  coaAccounts                    CoaAccount[]
+  coaAccountGroups               CoaAccountGroup[]
+  coaAccountHeads                CoaAccountHead[]
+  coaAccountTypes                CoaAccountType[]
+  coaAuditLogs                   CoaAuditLog[]
+  coaOwners                      CoaOwner[]
+  auditCreatedByUser             User?                         @relation("CompanyCreatedBy", fields: [auditCreatedByUserId], references: [id])
+  auditModifiedByUser            User?                         @relation("CompanyModifiedBy", fields: [auditModifiedByUserId], references: [id])
+  microsoftEntraConfig           CompanyMicrosoftEntraConfig?
+  integrationPlugins             IntegrationPlugin[]
+  integrationSources             IntegrationSource[]
+  integrationSyncRuns            IntegrationSyncRun[]
+  organisations                  Organisation[]                @relation("CompanyOrganisations")
+  payrollBenefitAssumptions      PayrollBenefitAssumption[]
+  payrollGlobalAssumptions       PayrollGlobalAssumption[]
+  payrollMethods                 PayrollMethod[]
+  payrollPositionAssumptions     PayrollPositionAssumption[]
+  payrollPositionOwnerValues     PayrollPositionOwnerValue[]
+  payrollStateAssumptions        PayrollStateAssumption[]
+  payrollStateConfigs            PayrollStateConfig[]
+  overtimeExcludedProperties     OvertimeExcludedProperty[]
+  properties                     Property[]
+  budgets                        PropertyBudget[]
+  propertyUnitTypes              PropertyUnitType[]
+  propertyUnits                  PropertyUnit[]
+  sourceRecordMaps               SourceRecordMap[]
+  stagingApiBatches              StagingApiBatch[]
+  stagingBudgets                 StagingBudget[]
+  stagingProperties              StagingProperty[]
+  stagingPropertyUnits           StagingPropertyUnit[]
+  stagingUnitTypes               StagingUnitType[]
+  systemRoleAssignments          SystemRoleAssignment[]
+  users                          User[]                        @relation("UserCompany")
+  platformUserAccess             UserCompanyAccess[]
+  workflowDefinitions            WorkflowDefinition[]
+  marketRentUnitRates            MarketRentUnitRate[]
+  marketRentChangeSets           MarketRentChangeSet[]
+  marketRentUnitChanges          MarketRentUnitChange[]
+  nonIncomeUnits                 NonIncomeUnit[]
+  leaseUpUnits                   LeaseUpUnit[]
+  rehabUnits                     RehabUnit[]
+
+  integrationReportRuns        IntegrationReportRun[]
+  integrationReportDefinitions IntegrationReportDefinition[]
+
+  stagingReportDatas      StagingReportData[]
+  propertyClosingStatuses PropertyClosingStatus[]
+  glTrees                 GlTree[]
+  propertyGlTrees         PropertyGlTree[]
+  stagingBudgetActuals    StagingBudgetActual[]
+  propertyGlAccounts      PropertyGlAccount[]
+  propertyBudgetActuals   PropertyBudgetActual[]
+  glTreeBranches          GlTreeBranch[]
+  integrationErrorLogs    IntegrationErrorLog[]
+  glAccounts              GlAccount[]
+  stagingGlTrees          StagingGlTree[]
+
+  @@index([onboardingStatus])
+  @@index([accessStatus])
+  @@index([isSystemInternal])
+  @@map("company")
+}
+
+model PropertyBudget {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  companyId             String                    @map("company_id") @db.Uuid
+  organisationId        String                    @map("organisation_id") @db.Uuid
+  propertyId            String                    @map("property_id") @db.Uuid
+  sourceBudgetId        String?                   @map("source_budget_id") @db.VarChar(150)
+  budgetName            String?                   @map("budget_name") @db.VarChar(250)
+  budgetStatusTypeId    String?                   @map("budget_status_type_id") @db.VarChar(50)
+  isDefault             Boolean?                  @map("is_default")
+  fiscalYear            Int?                      @map("fiscal_year")
+  fiscalStartDate       DateTime?                 @map("fiscal_start_date")
+  fiscalEndDate         DateTime?                 @map("fiscal_end_date")
+  budgetTotal           Decimal?                  @map("budget_total") @db.Decimal(18, 2)
+  currencyCode          String?                   @map("currency_code") @db.VarChar(20)
+  createdSource         String?                   @map("created_source") @db.VarChar(100)
+  updatedSource         String?                   @map("updated_source") @db.VarChar(100)
+  lastSyncedAt          DateTime?                 @map("last_synced_at")
+  isManuallyOverridden  Boolean                   @default(false) @map("is_manually_overridden")
+  createdAt             DateTime                  @default(now()) @map("created_at")
+  updatedAt             DateTime                  @updatedAt @map("updated_at")
+  glAccounts            PropertyBudgetGlAccount[]
+  company               Company                   @relation(fields: [companyId], references: [id])
+  organisation          Organisation              @relation(fields: [organisationId], references: [id])
+  property              Property                  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyBudgetActuals PropertyBudgetActual[]
+
+  @@unique([companyId, organisationId, propertyId, sourceBudgetId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@index([sourceBudgetId])
+  @@index([fiscalYear])
+  @@map("property_budgets")
+}
+
+model PropertyBudgetGlAccount {
+  id                    String                        @id @default(uuid()) @db.Uuid
+  companyId             String                        @map("company_id") @db.Uuid
+  organisationId        String                        @map("organisation_id") @db.Uuid
+  budgetId              String                        @map("budget_id") @db.Uuid
+  sourceGlAccountId     String?                       @map("source_gl_account_id") @db.VarChar(150)
+  accountNumber         String?                       @map("account_number") @db.VarChar(100)
+  accountName           String?                       @map("account_name") @db.VarChar(250)
+  totalAmount           Decimal?                      @map("total_amount") @db.Decimal(18, 2)
+  createdAt             DateTime                      @default(now()) @map("created_at")
+  updatedAt             DateTime                      @updatedAt @map("updated_at")
+  budget                PropertyBudget                @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  months                PropertyBudgetMonthlyAmount[]
+  propertyBudgetActuals PropertyBudgetActual[]
+
+  @@unique([budgetId, sourceGlAccountId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([budgetId])
+  @@index([sourceGlAccountId])
+  @@index([accountNumber])
+  @@map("property_budget_gl_accounts")
+}
+
+model PropertyBudgetMonthlyAmount {
+  id                String                  @id @default(uuid()) @db.Uuid
+  companyId         String                  @map("company_id") @db.Uuid
+  organisationId    String                  @map("organisation_id") @db.Uuid
+  budgetGlAccountId String                  @map("budget_gl_account_id") @db.Uuid
+  monthDate         DateTime                @map("month_date")
+  monthNo           Int                     @map("month_no")
+  fiscalYear        Int?                    @map("fiscal_year")
+  amount            Decimal?                @db.Decimal(18, 2)
+  createdAt         DateTime                @default(now()) @map("created_at")
+  updatedAt         DateTime                @updatedAt @map("updated_at")
+  budgetGlAccount   PropertyBudgetGlAccount @relation(fields: [budgetGlAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([budgetGlAccountId, monthDate])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([budgetGlAccountId])
+  @@index([monthDate])
+  @@index([fiscalYear])
+  @@map("property_budget_monthly_amounts")
+}
+
+model GlobalAssumption {
+  id                   String                             @id @default(uuid()) @db.Uuid
+  companyId            String                             @map("company_id") @db.Uuid
+  organisationId       String                             @map("organisation_id") @db.Uuid
+  coaAccountId         String                             @map("coa_account_id") @db.Uuid
+  description          String                             @map("description") @db.VarChar(250)
+  method               GlobalAssumptionMethod
+  amount               Decimal                            @db.Decimal(18, 5)
+  setupFeePerMonth     Decimal                            @map("setup_fee_per_month") @db.Decimal(18, 5)
+  amountPostingMonth   Int?                               @map("amount_posting_month")
+  setupFeePostingMonth Int?                               @map("setup_fee_posting_month")
+  updatedBy            String?                            @map("updated_by") @db.VarChar(100)
+  createdAt            DateTime                           @default(now()) @map("created_at")
+  updatedAt            DateTime                           @updatedAt @map("updated_at")
+  company              Company                            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation         Organisation                       @relation("OrganisationGlobalAssumptions", fields: [organisationId], references: [id])
+  coaAccount           CoaAccount                         @relation(fields: [coaAccountId], references: [id])
+  excludedProperties   GlobalAssumptionExcludedProperty[]
+
+  @@index([companyId])
+  @@index([coaAccountId])
+  @@index([organisationId])
+  @@map("global_assumptions")
+}
+
+model GlobalAssumptionExcludedProperty {
+  id                 String           @id @default(uuid()) @db.Uuid
+  companyId          String           @map("company_id") @db.Uuid
+  organisationId     String           @map("organisation_id") @db.Uuid
+  globalAssumptionId String           @map("global_assumption_id") @db.Uuid
+  propertyId         String           @map("property_id") @db.Uuid
+  propertyCode       String?          @map("property_code") @db.VarChar(100)
+  propertyName       String?          @map("property_name") @db.VarChar(255)
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  globalAssumption   GlobalAssumption @relation(fields: [globalAssumptionId], references: [id], onDelete: Cascade)
+  property           Property         @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([globalAssumptionId, propertyId])
+  @@index([propertyId])
+  @@index([companyId, organisationId])
+  @@map("global_assumption_excluded_properties")
+}
+
+model BudgetAssumptionApplyState {
+  propertyId       String    @map("property_id") @db.Uuid
+  fiscalYear       Int       @map("fiscal_year")
+  gaCount          Int       @map("ga_count")
+  gaMaxUpdatedAt   DateTime? @map("ga_max_updated_at")
+  exclCount        Int       @map("excl_count")
+  exclMaxUpdatedAt DateTime? @map("excl_max_updated_at")
+  lastAppliedAt    DateTime  @default(now()) @map("last_applied_at")
+  property         Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@id([propertyId, fiscalYear])
+  @@map("budget_assumption_apply_state")
+}
+
+/// Watermark for load-time budget_calculation runs, so mode 6 (initializeRoutine)
+/// executes once per property + fiscal year instead of on every screen load.
+model BudgetInitRunState {
+  propertyId String   @map("property_id") @db.Uuid
+  fiscalYear Int      @map("fiscal_year")
+  mode       Int      @map("mode")
+  lastRunAt  DateTime @default(now()) @map("last_run_at")
+  lastStatus String   @map("last_status") @db.VarChar(16)
+  lastError  String?  @map("last_error")
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@id([propertyId, fiscalYear, mode])
+  @@map("budget_init_run_state")
+}
+
+model PayrollMethod {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  companyId          String                     @map("company_id") @db.Uuid
+  organisationId     String                     @map("organisation_id") @db.Uuid
+  code               String                     @map("code") @db.VarChar(100)
+  name               String                     @map("name") @db.VarChar(200)
+  valueCount         Int                        @default(1) @map("value_count")
+  formula            String?                    @map("formula")
+  valueLabel1        String?                    @map("value_label_1") @db.VarChar(100)
+  valueLabel2        String?                    @map("value_label_2") @db.VarChar(100)
+  isActive           Boolean                    @default(true) @map("is_active")
+  sortOrder          Int                        @default(0) @map("sort_order")
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  updatedAt          DateTime                   @updatedAt @map("updated_at")
+  benefitAssumptions PayrollBenefitAssumption[]
+  company            Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation       Organisation               @relation("OrganisationPayrollMethods", fields: [organisationId], references: [id])
+
+  @@unique([organisationId, code])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([companyId, isActive])
+  @@map("payroll_methods")
+}
+
+model PayrollBenefitAssumption {
+  id                   String                                     @id @default(uuid()) @db.Uuid
+  companyId            String                                     @map("company_id") @db.Uuid
+  organisationId       String                                     @map("organisation_id") @db.Uuid
+  coaAccountId         String                                     @map("coa_account_id") @db.Uuid
+  methodId             String                                     @map("method_id") @db.Uuid
+  amount1              Decimal                                    @map("amount_1") @db.Decimal(18, 5)
+  amount2              Decimal?                                   @map("amount_2") @db.Decimal(18, 5)
+  amount3              Decimal?                                   @map("amount_3") @db.Decimal(18, 5)
+  amountConfig         Json?                                      @map("amount_config")
+  chargeConfig         Json?                                      @map("charge_config")
+  hasMultipleInputLine Boolean                                    @default(false) @map("has_multiple_input_line")
+  updatedBy            String?                                    @map("updated_by") @db.VarChar(100)
+  createdAt            DateTime                                   @default(now()) @map("created_at")
+  updatedAt            DateTime                                   @updatedAt @map("updated_at")
+  coaAccount           CoaAccount                                 @relation(fields: [coaAccountId], references: [id])
+  company              Company                                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  method               PayrollMethod                              @relation(fields: [methodId], references: [id])
+  organisation         Organisation                               @relation("OrganisationPayrollBenefitAssumptions", fields: [organisationId], references: [id])
+  excludedProperties   PayrollBenefitAssumptionExcludedProperty[]
+  manualDefaults       PayrollBenefitAssumptionManualDefault[]
+
+  @@unique([organisationId, coaAccountId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([coaAccountId])
+  @@index([methodId])
+  @@map("payroll_benefit_assumptions")
+}
+
+model PayrollBenefitAssumptionExcludedProperty {
+  id                         String                   @id @default(uuid()) @db.Uuid
+  companyId                  String                   @map("company_id") @db.Uuid
+  organisationId             String                   @map("organisation_id") @db.Uuid
+  payrollBenefitAssumptionId String                   @map("payroll_benefit_assumption_id") @db.Uuid
+  propertyId                 String                   @map("property_id") @db.Uuid
+  propertyCode               String?                  @map("property_code") @db.VarChar(100)
+  propertyName               String?                  @map("property_name") @db.VarChar(255)
+  createdAt                  DateTime                 @default(now()) @map("created_at")
+  updatedAt                  DateTime                 @updatedAt @map("updated_at")
+  payrollBenefitAssumption   PayrollBenefitAssumption @relation(fields: [payrollBenefitAssumptionId], references: [id], onDelete: Cascade)
+  property                   Property                 @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([payrollBenefitAssumptionId, propertyId])
+  @@index([propertyId])
+  @@index([companyId, organisationId])
+  @@map("payroll_benefit_assumption_excluded_properties")
+}
+
+model PayrollBenefitAssumptionManualDefault {
+  id                         String                   @id @default(uuid()) @db.Uuid
+  companyId                  String                   @map("company_id") @db.Uuid
+  organisationId             String                   @map("organisation_id") @db.Uuid
+  payrollBenefitAssumptionId String                   @map("payroll_benefit_assumption_id") @db.Uuid
+  coaId                      String                   @map("coa_id") @db.Uuid
+  defaultValue               Decimal                  @map("default_value") @db.Decimal(18, 5)
+  createdAt                  DateTime                 @default(now()) @map("created_at")
+  updatedAt                  DateTime                 @updatedAt @map("updated_at")
+  payrollBenefitAssumption   PayrollBenefitAssumption @relation(fields: [payrollBenefitAssumptionId], references: [id], onDelete: Cascade)
+  coaAccountDetailItem       CoaAccountDetailItem     @relation(fields: [coaId], references: [detailItemId], onDelete: Cascade)
+
+  @@unique([payrollBenefitAssumptionId, coaId])
+  @@index([coaId])
+  @@index([companyId, organisationId])
+  @@map("payroll_benefit_assumption_manual_defaults")
+}
+
+model PayrollGlobalAssumption {
+  id                 String                                    @id @default(uuid()) @db.Uuid
+  companyId          String                                    @map("company_id") @db.Uuid
+  organisationId     String                                    @map("organisation_id") @db.Uuid
+  key                String                                    @map("key") @db.VarChar(100)
+  name               String                                    @map("name") @db.VarChar(200)
+  category           String                                    @map("category") @db.VarChar(20)
+  accountCode        String?                                   @map("account_code") @db.VarChar(50)
+  value              Decimal                                   @default(0) @map("value") @db.Decimal(18, 5)
+  sortOrder          Int                                       @default(0) @map("sort_order")
+  updatedBy          String?                                   @map("updated_by") @db.VarChar(100)
+  createdAt          DateTime                                  @default(now()) @map("created_at")
+  updatedAt          DateTime                                  @updatedAt @map("updated_at")
+  company            Company                                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation       Organisation                              @relation("OrganisationPayrollGlobalAssumptions", fields: [organisationId], references: [id])
+  excludedProperties PayrollGlobalAssumptionExcludedProperty[]
+
+  @@unique([organisationId, key])
+  @@index([companyId])
+  @@index([organisationId])
+  @@map("payroll_global_assumptions")
+}
+
+model PayrollGlobalAssumptionExcludedProperty {
+  id                        String                  @id @default(uuid()) @db.Uuid
+  companyId                 String                  @map("company_id") @db.Uuid
+  organisationId            String                  @map("organisation_id") @db.Uuid
+  payrollGlobalAssumptionId String                  @map("payroll_global_assumption_id") @db.Uuid
+  propertyId                String                  @map("property_id") @db.Uuid
+  propertyCode              String?                 @map("property_code") @db.VarChar(100)
+  propertyName              String?                 @map("property_name") @db.VarChar(255)
+  createdAt                 DateTime                @default(now()) @map("created_at")
+  updatedAt                 DateTime                @updatedAt @map("updated_at")
+  payrollGlobalAssumption   PayrollGlobalAssumption @relation(fields: [payrollGlobalAssumptionId], references: [id], onDelete: Cascade)
+  property                  Property                @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([payrollGlobalAssumptionId, propertyId])
+  @@index([propertyId])
+  @@index([companyId, organisationId])
+  @@map("payroll_global_assumption_excluded_properties")
+}
+
+model OvertimeExcludedProperty {
+  id             String       @id @default(uuid()) @db.Uuid
+  companyId      String       @map("company_id") @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  propertyId     String       @map("property_id") @db.Uuid
+  updatedBy      String?      @map("updated_by") @db.VarChar(100)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation   Organisation @relation("OrganisationOvertimeExcludedProperty", fields: [organisationId], references: [id])
+  property       Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, organisationId, propertyId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@map("overtime_excluded_properties")
+}
+
+model PayrollStateConfig {
+  id             String       @id @default(uuid()) @db.Uuid
+  companyId      String       @map("company_id") @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  measure        String       @default("percentage") @map("measure") @db.VarChar(20)
+  updatedBy      String?      @map("updated_by") @db.VarChar(100)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation   Organisation @relation("OrganisationPayrollStateConfig", fields: [organisationId], references: [id])
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@map("payroll_state_configs")
+}
+
+model PayrollStateAssumption {
+  id             String       @id @default(uuid()) @db.Uuid
+  companyId      String       @map("company_id") @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  stateId        String       @map("state_id") @db.Uuid
+  sutaPercentage Decimal      @default(0) @map("suta_percentage") @db.Decimal(18, 5)
+  sutaAmount     Decimal      @default(0) @map("suta_amount") @db.Decimal(18, 5)
+  active         Boolean      @default(true) @map("active")
+  updatedBy      String?      @map("updated_by") @db.VarChar(100)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation   Organisation @relation("OrganisationPayrollStateAssumptions", fields: [organisationId], references: [id])
+  state          StateMaster  @relation(fields: [stateId], references: [stateId])
+
+  @@unique([organisationId, stateId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([stateId])
+  @@map("payroll_state_assumptions")
+}
+
+model PayrollPositionAssumption {
+  id                 String                                      @id @default(uuid()) @db.Uuid
+  companyId          String                                      @map("company_id") @db.Uuid
+  organisationId     String                                      @map("organisation_id") @db.Uuid
+  positionCode       String                                      @map("position_code") @db.VarChar(100)
+  positionName       String                                      @map("position_name") @db.VarChar(200)
+  classification     String                                      @map("classification") @db.VarChar(100)
+  active             Boolean                                     @default(true) @map("active")
+  viewBonusInfo      Boolean                                     @default(false) @map("view_bonus_info")
+  sortOrder          Int                                         @default(0) @map("sort_order")
+  updatedBy          String?                                     @map("updated_by") @db.VarChar(100)
+  createdAt          DateTime                                    @default(now()) @map("created_at")
+  updatedAt          DateTime                                    @updatedAt @map("updated_at")
+  parentPositionId   String?                                     @map("parent_position_id") @db.Uuid
+  company            Company                                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation       Organisation                                @relation("OrganisationPayrollPositionAssumptions", fields: [organisationId], references: [id])
+  parentPosition     PayrollPositionAssumption?                  @relation("PayrollPositionHierarchy", fields: [parentPositionId], references: [id])
+  childPositions     PayrollPositionAssumption[]                 @relation("PayrollPositionHierarchy")
+  ownerValues        PayrollPositionOwnerValue[]
+  salaryDetails      PayrollSalaryDetail[]
+  excludedProperties PayrollPositionAssumptionExcludedProperty[]
+
+  @@unique([organisationId, positionCode])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([parentPositionId])
+  @@map("payroll_position_assumptions")
+}
+
+model PayrollPositionAssumptionExcludedProperty {
+  id                          String                    @id @default(uuid()) @db.Uuid
+  companyId                   String                    @map("company_id") @db.Uuid
+  organisationId              String                    @map("organisation_id") @db.Uuid
+  payrollPositionAssumptionId String                    @map("payroll_position_assumption_id") @db.Uuid
+  propertyId                  String                    @map("property_id") @db.Uuid
+  propertyCode                String?                   @map("property_code") @db.VarChar(100)
+  propertyName                String?                   @map("property_name") @db.VarChar(255)
+  salaryDetailSnapshot        Json?                     @map("salary_detail_snapshot")
+  createdAt                   DateTime                  @default(now()) @map("created_at")
+  updatedAt                   DateTime                  @updatedAt @map("updated_at")
+  payrollPositionAssumption   PayrollPositionAssumption @relation(fields: [payrollPositionAssumptionId], references: [id], onDelete: Cascade)
+  property                    Property                  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([payrollPositionAssumptionId, propertyId])
+  @@index([propertyId])
+  @@index([companyId, organisationId])
+  @@map("payroll_position_assumption_excluded_properties")
+}
+
+model PayrollPositionOwnerValue {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  positionId            String                    @map("position_id") @db.Uuid
+  companyId             String                    @map("company_id") @db.Uuid
+  organisationId        String                    @map("organisation_id") @db.Uuid
+  ownerName             String                    @map("owner_name") @db.VarChar(100)
+  overtimeHoursPerMonth Decimal                   @default(0) @map("overtime_hours_per_month") @db.Decimal(18, 5)
+  overheadSupportEmp    Decimal                   @default(0) @map("overhead_support_emp") @db.Decimal(18, 5)
+  workersCompPercentage Decimal                   @default(0) @map("workers_comp_percentage") @db.Decimal(18, 5)
+  coaAccountId          String?                   @map("coa_account_id") @db.Uuid
+  updatedBy             String?                   @map("updated_by") @db.VarChar(100)
+  createdAt             DateTime                  @default(now()) @map("created_at")
+  updatedAt             DateTime                  @updatedAt @map("updated_at")
+  coaAccount            CoaAccount?               @relation("PayrollPositionOwnerValueCoaAccount", fields: [coaAccountId], references: [id])
+  company               Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation          Organisation              @relation("OrganisationPayrollPositionOwnerValues", fields: [organisationId], references: [id])
+  position              PayrollPositionAssumption @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
+  @@unique([positionId, ownerName])
+  @@index([positionId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([coaAccountId])
+  @@map("payroll_position_owner_values")
+}
+
+model PayrollSalaryDetail {
+  id                   String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId            String                    @map("company_id") @db.Uuid
+  organisationId       String                    @map("organisation_id") @db.Uuid
+  propertyId           String                    @map("property_id") @db.Uuid
+  positionAssumptionId String                    @map("position_assumption_id") @db.Uuid
+  fiscalYear           Int                       @map("fiscal_year")
+  salaryType           PayrollSalaryType         @default(FULL_TIME) @map("salary_type")
+  allocationPct        Decimal?                  @map("allocation_pct") @db.Decimal(10, 4)
+  notes                String?
+  createdBy            String?                   @map("created_by") @db.VarChar(100)
+  updatedBy            String?                   @map("updated_by") @db.VarChar(100)
+  createdAt            DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lines                PayrollSalaryDetailLine[]
+  positionAssumption   PayrollPositionAssumption @relation(fields: [positionAssumptionId], references: [id])
+
+  @@unique([companyId, organisationId, propertyId, positionAssumptionId, fiscalYear], map: "uq_payroll_salary_detail_scope")
+  @@index([companyId], map: "idx_psd_company")
+  @@index([organisationId], map: "idx_psd_org")
+  @@index([positionAssumptionId], map: "idx_psd_position")
+  @@index([propertyId], map: "idx_psd_property")
+  @@map("payroll_salary_details")
+}
+
+model PayrollSalaryDetailLine {
+  id                    String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payrollSalaryDetailId String                   @map("payroll_salary_detail_id") @db.Uuid
+  measureCode           PayrollSalaryMeasureCode @map("measure_code")
+  measureName           String                   @map("measure_name") @db.VarChar(100)
+  calculationMethod     PayrollCalculationMethod @default(MANUAL) @map("calculation_method")
+  inputValue            Decimal?                 @map("input_value") @db.Decimal(18, 4)
+  percentValue          Decimal?                 @map("percent_value") @db.Decimal(10, 4)
+  janAmount             Decimal?                 @map("jan_amount") @db.Decimal(18, 2)
+  febAmount             Decimal?                 @map("feb_amount") @db.Decimal(18, 2)
+  marAmount             Decimal?                 @map("mar_amount") @db.Decimal(18, 2)
+  aprAmount             Decimal?                 @map("apr_amount") @db.Decimal(18, 2)
+  mayAmount             Decimal?                 @map("may_amount") @db.Decimal(18, 2)
+  junAmount             Decimal?                 @map("jun_amount") @db.Decimal(18, 2)
+  julAmount             Decimal?                 @map("jul_amount") @db.Decimal(18, 2)
+  augAmount             Decimal?                 @map("aug_amount") @db.Decimal(18, 2)
+  sepAmount             Decimal?                 @map("sep_amount") @db.Decimal(18, 2)
+  octAmount             Decimal?                 @map("oct_amount") @db.Decimal(18, 2)
+  novAmount             Decimal?                 @map("nov_amount") @db.Decimal(18, 2)
+  decAmount             Decimal?                 @map("dec_amount") @db.Decimal(18, 2)
+  fullYearAmount        Decimal?                 @map("full_year_amount") @db.Decimal(18, 2)
+  isEditable            Boolean                  @default(true) @map("is_editable")
+  createdAt             DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  payrollSalaryDetail   PayrollSalaryDetail      @relation(fields: [payrollSalaryDetailId], references: [id], onDelete: Cascade)
+
+  @@unique([payrollSalaryDetailId, measureCode], map: "uq_payroll_salary_detail_line_measure")
+  @@index([payrollSalaryDetailId], map: "idx_psdl_detail")
+  @@map("payroll_salary_detail_lines")
+}
+
+model CoaInputMethod {
+  id          String       @id @default(uuid()) @map("method_id") @db.Uuid
+  name        String       @unique @map("method_name") @db.VarChar(50)
+  code        String?      @unique @map("method_code") @db.VarChar(50)
+  description String?      @map("description")
+  isActive    Boolean      @default(true) @map("is_active")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime?    @updatedAt @map("updated_at")
+  accounts    CoaAccount[]
+
+  @@map("coa_input_methods")
+}
+
+model CoaAccountType {
+  id             String           @id @default(uuid()) @map("type_id") @db.Uuid
+  companyId      String           @map("company_id") @db.Uuid
+  organisationId String           @map("organisation_id") @db.Uuid
+  name           String           @map("type_name") @db.VarChar(100)
+  sortOrder      Int              @default(0) @map("sort_order")
+  isActive       Boolean          @default(true) @map("is_active")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  accounts       CoaAccount[]
+  heads          CoaAccountHead[]
+  company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation   Organisation     @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, organisationId, name])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([companyId, organisationId])
+  @@map("coa_account_types")
+}
+
+model CoaAccountHead {
+  id             String            @id @default(uuid()) @map("head_id") @db.Uuid
+  companyId      String            @map("company_id") @db.Uuid
+  organisationId String            @map("organisation_id") @db.Uuid
+  typeId         String            @map("type_id") @db.Uuid
+  name           String            @map("head_name") @db.VarChar(100)
+  sortOrder      Int               @default(0) @map("sort_order")
+  isActive       Boolean           @default(true) @map("is_active")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+  accounts       CoaAccount[]
+  groups         CoaAccountGroup[]
+  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation   Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  type           CoaAccountType    @relation(fields: [typeId], references: [id])
+
+  @@unique([companyId, organisationId, typeId, name])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([typeId])
+  @@index([companyId, organisationId])
+  @@map("coa_account_heads")
+}
+
+model CoaAccountGroup {
+  id             String         @id @default(uuid()) @map("group_id") @db.Uuid
+  companyId      String         @map("company_id") @db.Uuid
+  organisationId String         @map("organisation_id") @db.Uuid
+  headId         String         @map("head_id") @db.Uuid
+  name           String         @map("group_name") @db.VarChar(150)
+  groupCode      String         @default("") @map("group_code") @db.VarChar(50)
+  sortOrder      Int            @default(0) @map("sort_order")
+  isActive       Boolean        @default(true) @map("is_active")
+  includeInPnl   Boolean?       @map("include_in_pnl")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  accounts       CoaAccount[]
+  company        Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  head           CoaAccountHead @relation(fields: [headId], references: [id])
+  organisation   Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, organisationId, headId, name])
+  @@unique([companyId, organisationId, headId, groupCode], map: "coa_account_groups_company_org_head_code_key")
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([headId])
+  @@index([companyId, organisationId])
+  @@map("coa_account_groups")
+}
+
+model CoaOwner {
+  id            String            @id @default(uuid()) @map("owner_id") @db.Uuid
+  companyId     String            @map("company_id") @db.Uuid
+  name          String            @map("owner_name") @db.VarChar(100)
+  department    String?           @map("department") @db.VarChar(100)
+  email         String?           @map("email") @db.VarChar(150)
+  isActive      Boolean           @default(true) @map("is_active")
+  accountOwners CoaAccountOwner[]
+  company       Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("coa_owners")
+}
+
+model CoaAccount {
+  id                             String                        @id @default(uuid()) @map("coa_id") @db.Uuid
+  companyId                      String                        @map("company_id") @db.Uuid
+  organisationId                 String                        @map("organisation_id") @db.Uuid
+  accountCode                    String                        @map("account_code") @db.VarChar(20)
+  accountDesc                    String?                       @map("account_desc") @db.VarChar(250)
+  accountName                    String                        @map("account_name") @db.VarChar(250)
+  typeId                         String                        @map("type_id") @db.Uuid
+  headId                         String                        @map("head_id") @db.Uuid
+  groupId                        String                        @map("group_id") @db.Uuid
+  methodId                       String                        @map("method_id") @db.Uuid
+  inputItem                      String?                       @map("input_item") @db.VarChar(150)
+  isLocked                       Boolean                       @default(false) @map("is_locked")
+  importFlag                     Boolean                       @default(false) @map("import_flag")
+  exportFlag                     Boolean                       @default(false) @map("export_flag")
+  requiredComment                Boolean                       @default(true) @map("required_comment")
+  amountSign                     CoaAmountSign                 @default(POSITIVE) @map("amount_sign")
+  notes                          String?                       @map("notes")
+  updatedBy                      String?                       @map("updated_by") @db.VarChar(100)
+  createdAt                      DateTime                      @default(now()) @map("created_at")
+  updatedAt                      DateTime                      @updatedAt @map("updated_at")
+  company                        Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  group                          CoaAccountGroup               @relation(fields: [groupId], references: [id])
+  head                           CoaAccountHead                @relation(fields: [headId], references: [id])
+  method                         CoaInputMethod                @relation(fields: [methodId], references: [id])
+  organisation                   Organisation                  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  type                           CoaAccountType                @relation(fields: [typeId], references: [id])
+  coaAccountDetailItems          CoaAccountDetailItem[]
+  owners                         CoaAccountOwner[]
+  auditEntries                   CoaAuditLog[]
+  payrollBenefitAssumptions      PayrollBenefitAssumption[]
+  globalAssumptions              GlobalAssumption[]
+  payrollPositionOwnerValues     PayrollPositionOwnerValue[]   @relation("PayrollPositionOwnerValueCoaAccount")
+  budgetCalcLineChanges          BudgetCalcLineChange[]
+  budgetLineDetailChanges        BudgetLineDetailChange[]
+  coaTemplateExclusions          CoaTemplateExclusion[]
+  templateOverrides              CoaTemplateOverride[]         @relation("CoaTemplateOverrideCoa")
+  mappedDefaultTemplateOverrides CoaTemplateOverride[]         @relation("MappedDefaultCoaAccount")
+  proformaCoaGlobalAssumptions   ProformaCoaGlobalAssumption[]
+  coaPropertyExclusions          CoaPropertyExclusion[]
+  propertyOverrides              CoaPropertyOverride[]
+
+  @@unique([companyId, organisationId, accountCode])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([companyId, organisationId])
+  @@index([typeId])
+  @@index([headId])
+  @@index([groupId])
+  @@index([methodId])
+  @@map("chart_of_accounts")
+}
+
+model CoaTemplate {
+  id             String                 @id @default(uuid()) @db.Uuid
+  companyId      String                 @map("company_id") @db.Uuid
+  organisationId String                 @map("organisation_id") @db.Uuid
+  name           String                 @db.VarChar(255)
+  description    String?                @db.VarChar(500)
+  isDefault      Boolean                @default(false) @map("is_default")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+  properties     Property[]
+  overrides      CoaTemplateOverride[]
+  exclusions     CoaTemplateExclusion[]
+
+  @@map("coa_templates")
+}
+
+model CoaTemplateOverride {
+  overrideId         String         @id @default(uuid()) @map("override_id") @db.Uuid
+  companyId          String         @map("company_id") @db.Uuid
+  organisationId     String         @map("organisation_id") @db.Uuid
+  templateId         String         @map("template_id") @db.Uuid
+  ownerName          String?        @map("owner_name") @db.VarChar(255)
+  coaId              String         @map("coa_id") @db.Uuid
+  mappedDefaultCoaId String?        @map("mapped_default_coa_id") @db.Uuid
+  accountCode        String?        @map("account_code") @db.VarChar(20)
+  accountDesc        String?        @map("account_desc") @db.VarChar(250)
+  accountName        String?        @map("account_name") @db.VarChar(250)
+  typeId             String?        @map("type_id") @db.Uuid
+  headId             String?        @map("head_id") @db.Uuid
+  groupId            String?        @map("group_id") @db.Uuid
+  methodId           String?        @map("method_id") @db.Uuid
+  inputItem          String?        @map("input_item") @db.VarChar(150)
+  isLocked           Boolean?       @map("is_locked")
+  importFlag         Boolean?       @map("import_flag")
+  exportFlag         Boolean?       @map("export_flag")
+  requiredComment    Boolean?       @map("required_comment")
+  amountSign         CoaAmountSign? @map("amount_sign")
+  showDetailRows     Boolean?       @map("show_detail_rows")
+  notes              String?        @db.Text
+  isActive           Boolean        @default(true) @map("is_active")
+  createdBy          String?        @map("created_by") @db.VarChar(100)
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedBy          String?        @map("updated_by") @db.VarChar(100)
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamp(3)
+  coa                CoaAccount     @relation("CoaTemplateOverrideCoa", fields: [coaId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  mappedDefaultCoa   CoaAccount?    @relation("MappedDefaultCoaAccount", fields: [mappedDefaultCoaId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  template           CoaTemplate    @relation(fields: [templateId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([companyId, organisationId, templateId, coaId], map: "coa_template_overrides_unique_template_coa")
+  @@index([companyId, organisationId, templateId], map: "idx_coa_template_overrides_company_org_template")
+  @@index([templateId, coaId], map: "idx_coa_template_overrides_template_coa")
+  @@index([coaId], map: "idx_coa_template_overrides_coa_id")
+  @@index([mappedDefaultCoaId], map: "idx_coa_template_overrides_mapped_default_coa_id")
+  @@index([typeId], map: "idx_coa_template_overrides_type_id")
+  @@index([headId], map: "idx_coa_template_overrides_head_id")
+  @@index([groupId], map: "idx_coa_template_overrides_group_id")
+  @@index([methodId], map: "idx_coa_template_overrides_method_id")
+  @@map("coa_template_overrides")
+}
+
+model CoaTemplateExclusion {
+  coaId          String      @map("coa_id") @db.Uuid
+  companyId      String      @map("company_id") @db.Uuid
+  organisationId String      @map("organisation_id") @db.Uuid
+  templateId     String      @map("template_id") @db.Uuid
+  ownerName      String?     @map("owner_name") @db.VarChar(255)
+  mapAccountId   String?     @map("map_account_id") @db.Uuid
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  coaAccount     CoaAccount  @relation(fields: [coaId], references: [id], onDelete: Cascade)
+  template       CoaTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@id([coaId, templateId])
+  @@map("coa_template_exclusions")
+}
+
+model CoaPropertyOverride {
+  overrideId      String         @id @default(uuid()) @map("override_id") @db.Uuid
+  companyId       String         @map("company_id") @db.Uuid
+  organisationId  String         @map("organisation_id") @db.Uuid
+  propertyId      String         @map("property_id") @db.Uuid
+  ownerName       String?        @map("owner_name") @db.VarChar(255)
+  coaId           String         @map("coa_id") @db.Uuid
+  accountCode     String?        @map("account_code") @db.VarChar(20)
+  accountDesc     String?        @map("account_desc") @db.VarChar(250)
+  accountName     String?        @map("account_name") @db.VarChar(250)
+  typeId          String?        @map("type_id") @db.Uuid
+  headId          String?        @map("head_id") @db.Uuid
+  groupId         String?        @map("group_id") @db.Uuid
+  methodId        String?        @map("method_id") @db.Uuid
+  inputItem       String?        @map("input_item") @db.VarChar(150)
+  isLocked        Boolean?       @map("is_locked")
+  importFlag      Boolean?       @map("import_flag")
+  exportFlag      Boolean?       @map("export_flag")
+  requiredComment Boolean?       @map("required_comment")
+  amountSign      CoaAmountSign? @map("amount_sign")
+  showDetailRows  Boolean?       @map("show_detail_rows")
+  notes           String?        @db.Text
+  isActive        Boolean        @default(true) @map("is_active")
+  createdBy       String?        @map("created_by") @db.VarChar(100)
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedBy       String?        @map("updated_by") @db.VarChar(100)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamp(3)
+  coa             CoaAccount     @relation(fields: [coaId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([companyId, organisationId, propertyId, coaId], map: "coa_property_overrides_unique_property_coa")
+  @@index([companyId, organisationId, propertyId], map: "idx_coa_property_overrides_company_org_property")
+  @@index([propertyId, coaId], map: "idx_coa_property_overrides_property_coa")
+  @@index([coaId], map: "idx_coa_property_overrides_coa_id")
+  @@index([typeId], map: "idx_coa_property_overrides_type_id")
+  @@index([headId], map: "idx_coa_property_overrides_head_id")
+  @@index([groupId], map: "idx_coa_property_overrides_group_id")
+  @@index([methodId], map: "idx_coa_property_overrides_method_id")
+  @@map("coa_property_overrides")
+}
+
+model CoaPropertyExclusion {
+  coaId          String   @map("coa_id") @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  organisationId String   @map("organisation_id") @db.Uuid
+  propertyId     String   @map("property_id") @db.Uuid
+  ownerName      String?  @map("owner_name") @db.VarChar(255)
+  mapAccountId   String?  @map("map_account_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  coaAccount CoaAccount @relation(fields: [coaId], references: [id], onDelete: Cascade)
+  property   Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@id([coaId, propertyId])
+  @@map("coa_property_exclusions")
+}
+
+model CoaAccountDetailItem {
+  detailItemId                           String                                  @id @default(uuid()) @map("detail_item_id") @db.Uuid
+  companyId                              String                                  @map("company_id") @db.Uuid
+  organisationId                         String                                  @map("organisation_id") @db.Uuid
+  coaId                                  String                                  @map("coa_id") @db.Uuid
+  accountCode                            String                                  @map("account_code") @db.VarChar(100)
+  accountName                            String                                  @map("account_name") @db.VarChar(500)
+  lineType                               String                                  @default("DETAIL") @map("line_type") @db.VarChar(50)
+  inputMethod                            String?                                 @map("input_method") @db.VarChar(50)
+  inputValue                             Decimal?                                @map("input_value") @db.Decimal(18, 4)
+  percentValue                           Decimal?                                @map("percent_value") @db.Decimal(10, 6)
+  isEditable                             Boolean                                 @default(true) @map("is_editable")
+  isCalculated                           Boolean                                 @default(false) @map("is_calculated")
+  commentRequired                        Boolean                                 @default(false) @map("comment_required")
+  sortOrder                              Int                                     @default(0) @map("sort_order")
+  active                                 Boolean                                 @default(true)
+  assumptionSourceType                   String?                                 @map("assumption_source_type") @db.VarChar(50)
+  assumptionSourceId                     String?                                 @map("assumption_source_id") @db.Uuid
+  createdAt                              DateTime                                @default(now()) @map("created_at")
+  updatedAt                              DateTime                                @default(now()) @updatedAt @map("updated_at")
+  chartOfAccount                         CoaAccount                              @relation(fields: [coaId], references: [id], onDelete: Cascade)
+  lineDetails                            BudgetLineDetail[]
+  lineDetailChanges                      BudgetLineDetailChange[]
+  payrollBenefitAssumptionManualDefaults PayrollBenefitAssumptionManualDefault[]
+
+  @@unique([coaId, accountCode, accountName], map: "uq_coa_account_detail_items_code_name")
+  @@map("coa_account_detail_items")
+}
+
+model CoaAccountOwner {
+  id        String     @id @default(uuid()) @db.Uuid
+  accountId String     @map("coa_id") @db.Uuid
+  ownerId   String     @map("owner_id") @db.Uuid
+  account   CoaAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  owner     CoaOwner   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, ownerId])
+  @@index([ownerId])
+  @@map("coa_account_owners")
+}
+
+model CoaAuditLog {
+  id          String     @id @default(uuid()) @map("log_id") @db.Uuid
+  companyId   String     @map("company_id") @db.Uuid
+  accountId   String     @map("coa_id") @db.Uuid
+  accountCode String     @map("account_code") @db.VarChar(20)
+  fieldName   String     @map("field_name") @db.VarChar(50)
+  oldValue    String?    @map("old_value")
+  newValue    String?    @map("new_value")
+  changedBy   String?    @map("changed_by") @db.VarChar(100)
+  changedAt   DateTime   @default(now()) @map("changed_at")
+  account     CoaAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  company     Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([accountId])
+  @@map("coa_audit_log")
+}
+
+model CompanyMicrosoftEntraConfig {
+  id                    String   @id @default(uuid()) @db.Uuid
+  companyId             String   @unique @db.Uuid
+  enabled               Boolean  @default(false)
+  tenantId              String
+  clientId              String
+  clientSecret          String
+  backendRedirectUri    String
+  frontendRedirectUri   String
+  postLogoutRedirectUri String?
+  scopes                Json?
+  allowedEmailDomains   Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, enabled])
+  @@map("company_microsoft_entra_config")
+}
+
+model Organisation {
+  id                           String                        @id @default(uuid()) @db.Uuid
+  companyId                    String                        @map("company_id") @db.Uuid
+  parentOrganisationId         String?                       @db.Uuid
+  name                         String
+  code                         String                        @map("code") @db.VarChar(100)
+  description                  String?
+  isSystemInternal             Boolean                       @default(false)
+  kind                         OrganisationKind              @default(OPERATIONAL)
+  entityType                   EntityType                    @default(LEGAL_ENTITY)
+  entityTypeDetail             EntityTypeDetail?
+  status                       OrganisationStatus            @default(SETUP)
+  timeZone                     String?
+  notes                        String?
+  primaryContactName           String?
+  primaryContactEmail          String?
+  primaryContactPhone          String?
+  primaryContactDesignation    String?
+  billingContactName           String?
+  billingContactEmail          String?
+  billingContactPhone          String?
+  addressLine1                 String?
+  addressLine2                 String?
+  city                         String?
+  state                        String?
+  postalCode                   String?
+  country                      String?
+  workflowConfig               Json?
+  pmsConfig                    Json?
+  configuration                Json?
+  licensedProperties           Int?
+  licensedUsers                Int?
+  licenseStatus                LicenseStatus                 @default(DRAFT)
+  licenseStartDate             DateTime?
+  licenseDurationValue         Int?
+  licenseDurationUnit          LicenseDurationUnit?
+  licenseEndDate               DateTime?
+  licenseNotes                 String?
+  auditCreatedByUserId         String?                       @db.Uuid
+  auditModifiedByUserId        String?                       @db.Uuid
+  createdAt                    DateTime                      @default(now()) @map("created_at")
+  updatedAt                    DateTime                      @updatedAt @map("updated_at")
+  auditLogs                    AuditLog[]
+  businessRoleAssignments      BusinessRoleAssignment[]
+  coaAccounts                  CoaAccount[]
+  coaAccountGroups             CoaAccountGroup[]
+  coaAccountHeads              CoaAccountHead[]
+  coaAccountTypes              CoaAccountType[]
+  integrationSources           IntegrationSource[]
+  integrationSyncRuns          IntegrationSyncRun[]
+  auditCreatedByUser           User?                         @relation("OrganisationCreatedBy", fields: [auditCreatedByUserId], references: [id])
+  auditModifiedByUser          User?                         @relation("OrganisationModifiedBy", fields: [auditModifiedByUserId], references: [id])
+  company                      Company                       @relation("CompanyOrganisations", fields: [companyId], references: [id])
+  parentOrganisation           Organisation?                 @relation("OrganisationHierarchy", fields: [parentOrganisationId], references: [id], onDelete: Cascade)
+  childOrganisations           Organisation[]                @relation("OrganisationHierarchy")
+  organisationStates           OrganisationStates[]
+  globalAssumptions            GlobalAssumption[]            @relation("OrganisationGlobalAssumptions")
+  payrollBenefitAssumptions    PayrollBenefitAssumption[]    @relation("OrganisationPayrollBenefitAssumptions")
+  payrollGlobalAssumptions     PayrollGlobalAssumption[]     @relation("OrganisationPayrollGlobalAssumptions")
+  payrollMethods               PayrollMethod[]               @relation("OrganisationPayrollMethods")
+  payrollPositionAssumptions   PayrollPositionAssumption[]   @relation("OrganisationPayrollPositionAssumptions")
+  payrollPositionOwnerValues   PayrollPositionOwnerValue[]   @relation("OrganisationPayrollPositionOwnerValues")
+  payrollStateAssumptions      PayrollStateAssumption[]      @relation("OrganisationPayrollStateAssumptions")
+  payrollStateConfig           PayrollStateConfig[]          @relation("OrganisationPayrollStateConfig")
+  overtimeExcludedProperties   OvertimeExcludedProperty[]    @relation("OrganisationOvertimeExcludedProperty")
+  periodicDrivers              PeriodicDriver[]
+  proformaScenarios            ProformaScenario[]            @relation("OrganisationProformaScenarios")
+  proformaComparableProperties ProformaComparableProperty[]  @relation("OrganisationProformaComparables")
+  proformaDrivers              ProformaDriver[]              @relation("OrganisationProformaDrivers")
+  proformaGlobalAssumptions    ProformaGlobalAssumption[]    @relation("OrganisationProformaGlobalAssumptions")
+  proformaCoaGlobalAssumptions ProformaCoaGlobalAssumption[] @relation("OrganisationProformaCoaGlobalAssumptions")
+  properties                   Property[]
+  budgets                      PropertyBudget[]
+  propertyUnitTypes            PropertyUnitType[]
+  propertyUnits                PropertyUnit[]
+  sourceRecordMaps             SourceRecordMap[]
+  stagingApiBatches            StagingApiBatch[]
+  stagingGlTrees               StagingGlTree[]
+  stagingBudgets               StagingBudget[]
+  stagingProperties            StagingProperty[]
+  stagingPropertyUnits         StagingPropertyUnit[]
+  stagingUnitTypes             StagingUnitType[]
+  systemRoleAssignments        SystemRoleAssignment[]
+  users                        User[]                        @relation("UserOrganisation")
+  workflowDefinitions          WorkflowDefinition[]
+  marketRentUnitRates          MarketRentUnitRate[]
+  marketRentChangeSets         MarketRentChangeSet[]
+  marketRentUnitChanges        MarketRentUnitChange[]
+  nonIncomeUnits               NonIncomeUnit[]
+  leaseUpUnits                 LeaseUpUnit[]
+  rehabUnits                   RehabUnit[]
+
+  integrationReportRuns        IntegrationReportRun[]
+  integrationReportDefinitions IntegrationReportDefinition[]
+  propertyClosingStatuses      PropertyClosingStatus[]
+  stagingReportDatas           StagingReportData[]
+  // stagingGlTrees               StagingGlTree[]
+  glTrees                      GlTree[]
+  glTreeBranches               GlTreeBranch[]
+  propertyBudgetActuals        PropertyBudgetActual[]
+  propertyGlAccounts           PropertyGlAccount[]
+  glAccounts                   GlAccount[]
+  propertyGlTrees              PropertyGlTree[]
+  stagingBudgetActuals         StagingBudgetActual[]
+  integrationErrorLogs         IntegrationErrorLog[]
+
+  @@unique([companyId, code])
+  @@index([companyId, parentOrganisationId])
+  @@index([companyId])
+  @@index([status])
+  @@index([licenseStatus])
+  @@index([isSystemInternal])
+  @@map("organisation")
+}
+
+model LeaseStartWindow {
+  id                         String            @id @default(uuid()) @db.Uuid
+  companyId                  String            @map("company_id") @db.Uuid
+  organisationId             String            @map("organisation_id") @db.Uuid
+  propertyLeaseTermId        String            @map("property_lease_term_id") @db.Uuid
+  externalLeaseStartWindowId String?           @map("external_lease_start_window_id") @db.VarChar(150)
+  windowStartDate            DateTime?         @map("window_start_date")
+  windowEndDate              DateTime?         @map("window_end_date")
+  createdAt                  DateTime          @default(now()) @map("created_at")
+  updatedAt                  DateTime          @updatedAt @map("updated_at")
+  propertyLeaseTerm          PropertyLeaseTerm @relation(fields: [propertyLeaseTermId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyLeaseTermId, externalLeaseStartWindowId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyLeaseTermId])
+  @@map("lease_start_windows")
+}
+
+model UserCompanyAccess {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  companyId String   @db.Uuid
+  createdAt DateTime @default(now())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
+  @@index([userId])
+  @@index([companyId])
+  @@map("user_company_access")
+}
+
+model BusinessRole {
+  id                      String                   @id @default(uuid()) @db.Uuid
+  companyId               String                   @db.Uuid
+  code                    String
+  name                    String
+  description             String?
+  dashboardKey            String?
+  menuConfig              Json?
+  permissionConfig        Json?
+  scopeConfig             Json?
+  isSystemTemplate        Boolean                  @default(false)
+  isCompanyAdminRole      Boolean                  @default(false)
+  isOrganisationAdminRole Boolean                  @default(false)
+  isActive                Boolean                  @default(true)
+  createdByUserId         String?                  @db.Uuid
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  company                 Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdByUser           User?                    @relation("BusinessRoleCreatedBy", fields: [createdByUserId], references: [id])
+  assignments             BusinessRoleAssignment[]
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@map("business_role")
+}
+
+model BusinessRoleAssignment {
+  id               String           @id @default(uuid()) @db.Uuid
+  userId           String           @db.Uuid
+  businessRoleId   String           @db.Uuid
+  companyId        String           @db.Uuid
+  organisationId   String?          @db.Uuid
+  propertyId       String?          @db.Uuid
+  scopeType        ScopeType
+  scopeRef         String
+  status           AssignmentStatus @default(ACTIVE)
+  assignedByUserId String?          @db.Uuid
+  assignedAt       DateTime         @default(now())
+  revokedAt        DateTime?
+  notes            String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  assignedByUser   User?            @relation("BusinessRoleAssignmentAssignedBy", fields: [assignedByUserId], references: [id])
+  businessRole     BusinessRole     @relation(fields: [businessRoleId], references: [id], onDelete: Cascade)
+  company          Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation     Organisation?    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  property         Property?        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  user             User             @relation("UserBusinessRoleAssignment", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, businessRoleId, scopeType, scopeRef])
+  @@index([userId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@map("business_role_assignment")
+}
+
+model WorkflowDefinition {
+  id             String         @id @default(uuid()) @db.Uuid
+  companyId      String         @db.Uuid
+  organisationId String         @db.Uuid
+  name           String
+  description    String?
+  status         WorkflowStatus @default(DRAFT)
+  version        Int            @default(1)
+  isDefault      Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  properties     Property[]
+  company        Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation   Organisation   @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  steps          WorkflowStep[]
+
+  @@index([companyId, organisationId])
+  @@index([status])
+  @@map("workflow_definition")
+}
+
+model WorkflowStep {
+  id                     String                       @id @default(uuid()) @db.Uuid
+  workflowDefinitionId   String                       @db.Uuid
+  stepOrder              Int
+  name                   String
+  description            String?
+  stepType               WorkflowStepType             @default(CUSTOM)
+  systemRoleId           String?                      @db.Uuid
+  isRequired             Boolean                      @default(true)
+  slaDays                Int?
+  canDelegate            Boolean                      @default(false)
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @updatedAt
+  propertyAssignments    PropertyWorkflowAssignment[]
+  currentStepProperties  Property[]                   @relation("PropertyCurrentWorkflowStep")
+  systemRole             SystemRole?                  @relation(fields: [systemRoleId], references: [id])
+  workflowDefinition     WorkflowDefinition           @relation(fields: [workflowDefinitionId], references: [id], onDelete: Cascade)
+  propertyCommentsFrom   PropertyWorkflowComment[]    @relation("PropertyWorkflowCommentStep")
+  propertyCommentsTarget PropertyWorkflowComment[]    @relation("PropertyWorkflowCommentTargetStep")
+
+  @@unique([workflowDefinitionId, stepOrder])
+  @@index([systemRoleId])
+  @@map("workflow_step")
+}
+
+model AuditLog {
+  id                 String        @id @default(uuid()) @db.Uuid
+  actorUserId        String?       @db.Uuid
+  impersonatedUserId String?       @db.Uuid
+  companyId          String?       @db.Uuid
+  organisationId     String?       @db.Uuid
+  propertyId         String?       @db.Uuid
+  scopeType          ScopeType
+  scopeRef           String
+  entityType         String
+  entityId           String
+  action             String
+  summary            String?
+  beforeData         Json?
+  afterData          Json?
+  metadata           Json?
+  createdAt          DateTime      @default(now())
+  actorUser          User?         @relation("AuditActorUser", fields: [actorUserId], references: [id])
+  company            Company?      @relation(fields: [companyId], references: [id])
+  impersonatedUser   User?         @relation("AuditImpersonatedUser", fields: [impersonatedUserId], references: [id])
+  organisation       Organisation? @relation(fields: [organisationId], references: [id])
+  property           Property?     @relation(fields: [propertyId], references: [id])
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_log")
+}
+
+model StateMaster {
+  stateId                 String                   @id @default(uuid()) @map("state_id") @db.Uuid
+  stateCode               String                   @unique @map("state_code") @db.VarChar(2)
+  stateName               String                   @map("state_name")
+  region                  String                   @map("region")
+  organisationStates      OrganisationStates[]
+  payrollStateAssumptions PayrollStateAssumption[]
+
+  @@map("state_master")
+}
+
+model OrganisationStates {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  stateId        String       @map("state_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  state          StateMaster  @relation(fields: [stateId], references: [stateId], onDelete: Cascade)
+
+  @@unique([organisationId, stateId])
+  @@index([organisationId])
+  @@index([stateId])
+  @@map("organisation_states")
+}
+
+model BudgetSnapshot {
+  snapshotId           String                     @id @default(uuid()) @map("snapshot_id") @db.Uuid
+  companyId            String                     @map("company_id") @db.Uuid
+  organisationId       String                     @map("organisation_id") @db.Uuid
+  propertyId           String                     @map("property_id") @db.Uuid
+  fiscalYear           Int                        @map("fiscal_year")
+  snapshotType         String                     @map("snapshot_type") @db.VarChar(40)
+  status               String                     @db.VarChar(30)
+  sourceSnapshotId     String?                    @map("source_snapshot_id") @db.Uuid
+  forecastBasis        String?                    @map("forecast_basis") @db.VarChar(50)
+  forecastMethod       String?                    @map("forecast_method") @db.VarChar(50)
+  revisionNo           Int                        @default(1) @map("revision_no")
+  sourceSystem         String?                    @map("source_system") @db.VarChar(50)
+  sourceBatchId        String?                    @map("source_batch_id") @db.Uuid
+  importedAt           DateTime?                  @map("imported_at")
+  generatedBy          String?                    @map("generated_by") @db.Uuid
+  generatedAt          DateTime?                  @map("generated_at")
+  submittedBy          String?                    @map("submitted_by") @db.Uuid
+  submittedAt          DateTime?                  @map("submitted_at")
+  approvedBy           String?                    @map("approved_by") @db.Uuid
+  approvedAt           DateTime?                  @map("approved_at")
+  createdBy            String?                    @map("created_by") @db.Uuid
+  createdAt            DateTime                   @default(now()) @map("created_at")
+  updatedBy            String?                    @map("updated_by") @db.Uuid
+  updatedAt            DateTime                   @default(now()) @map("updated_at")
+  calcLineBaselines    BudgetCalcLineBaseline[]
+  calcLineChanges      BudgetCalcLineChange[]
+  calcLines            BudgetCalcLine[]
+  changeSets           BudgetChangeSet[]
+  lineDetailBaselines  BudgetLineDetailBaseline[]
+  lineDetailChanges    BudgetLineDetailChange[]
+  lineDetails          BudgetLineDetail[]
+  marketRentChangeSets MarketRentChangeSet[]
+
+  @@unique([propertyId, fiscalYear, snapshotType], map: "uq_budget_snapshot_scope")
+  @@index([propertyId, fiscalYear, snapshotType, status], map: "idx_bs_property_year_status")
+  @@map("budget_snapshots")
+}
+
+model BudgetCalcLine {
+  calcLineId          String                   @id @default(uuid()) @map("calc_line_id") @db.Uuid
+  snapshotId          String                   @map("snapshot_id") @db.Uuid
+  companyId           String                   @map("company_id") @db.Uuid
+  organisationId      String                   @map("organisation_id") @db.Uuid
+  propertyId          String                   @map("property_id") @db.Uuid
+  fiscalYear          Int                      @map("fiscal_year")
+  snapshotType        String                   @map("snapshot_type") @db.VarChar(40)
+  coaId               String?                  @map("coa_id") @db.Uuid
+  accountCode         String?                  @map("account_code") @db.VarChar(20)
+  accountName         String?                  @map("account_name") @db.VarChar(250)
+  accountGroup        String?                  @map("account_group") @db.VarChar(150)
+  lineCode            String                   @map("line_code") @db.VarChar(100)
+  lineName            String                   @map("line_name") @db.VarChar(250)
+  lineType            String                   @map("line_type") @db.VarChar(50)
+  parentLineCode      String?                  @map("parent_line_code") @db.VarChar(100)
+  sortOrder           Int                      @default(0) @map("sort_order")
+  isEditable          Boolean                  @default(false) @map("is_editable")
+  isCalculated        Boolean                  @default(true) @map("is_calculated")
+  isReference         Boolean                  @default(false) @map("is_reference")
+  formulaJson         Json?                    @map("formula_json")
+  janAmount           Decimal?                 @map("jan_amount") @db.Decimal(18, 2)
+  febAmount           Decimal?                 @map("feb_amount") @db.Decimal(18, 2)
+  marAmount           Decimal?                 @map("mar_amount") @db.Decimal(18, 2)
+  aprAmount           Decimal?                 @map("apr_amount") @db.Decimal(18, 2)
+  mayAmount           Decimal?                 @map("may_amount") @db.Decimal(18, 2)
+  junAmount           Decimal?                 @map("jun_amount") @db.Decimal(18, 2)
+  julAmount           Decimal?                 @map("jul_amount") @db.Decimal(18, 2)
+  augAmount           Decimal?                 @map("aug_amount") @db.Decimal(18, 2)
+  sepAmount           Decimal?                 @map("sep_amount") @db.Decimal(18, 2)
+  octAmount           Decimal?                 @map("oct_amount") @db.Decimal(18, 2)
+  novAmount           Decimal?                 @map("nov_amount") @db.Decimal(18, 2)
+  decAmount           Decimal?                 @map("dec_amount") @db.Decimal(18, 2)
+  fullYearAmount      Decimal?                 @map("full_year_amount") @db.Decimal(18, 2)
+  inputMethod         String?                  @map("input_method") @db.VarChar(50)
+  notes               String?
+  globalAssumptionId  String?                  @map("global_assumption_id") @db.Uuid
+  assumptionStatus    String?                  @map("assumption_status") @db.VarChar(30)
+  assumptionDriver    String?                  @map("assumption_driver") @db.VarChar(50)
+  assumptionSource    String?                  @map("assumption_source") @db.VarChar(50)
+  assumptionUpdatedAt DateTime?                @map("assumption_updated_at") @db.Timestamp(3)
+  isAssumptionDriven  Boolean                  @default(false) @map("is_assumption_driven")
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @default(now()) @map("updated_at")
+  lineChanges         BudgetCalcLineChange[]
+  snapshot            BudgetSnapshot           @relation(fields: [snapshotId], references: [snapshotId], onDelete: Cascade)
+  lineDetailChanges   BudgetLineDetailChange[]
+  lineDetails         BudgetLineDetail[]
+
+  @@unique([snapshotId, lineCode], map: "uq_budget_calc_line_code")
+  @@index([snapshotId, accountGroup, sortOrder], map: "idx_bcl_snapshot_group_sort")
+  @@index([snapshotId, lineCode], map: "idx_bcl_snapshot_linecode")
+  @@map("budget_calc_lines")
+}
+
+model BudgetCalcLineBaseline {
+  calcLineBaselineId  String                     @id @default(uuid()) @map("calc_line_baseline_id") @db.Uuid
+  snapshotId          String                     @map("snapshot_id") @db.Uuid
+  sourceSnapshotId    String?                    @map("source_snapshot_id") @db.Uuid
+  companyId           String                     @map("company_id") @db.Uuid
+  organisationId      String                     @map("organisation_id") @db.Uuid
+  propertyId          String                     @map("property_id") @db.Uuid
+  fiscalYear          Int                        @map("fiscal_year")
+  snapshotType        String                     @map("snapshot_type") @db.VarChar(40)
+  coaId               String?                    @map("coa_id") @db.Uuid
+  accountCode         String?                    @map("account_code") @db.VarChar(20)
+  accountName         String?                    @map("account_name") @db.VarChar(250)
+  accountGroup        String?                    @map("account_group") @db.VarChar(150)
+  lineCode            String                     @map("line_code") @db.VarChar(100)
+  lineName            String                     @map("line_name") @db.VarChar(250)
+  lineType            String                     @map("line_type") @db.VarChar(50)
+  parentLineCode      String?                    @map("parent_line_code") @db.VarChar(100)
+  sortOrder           Int                        @default(0) @map("sort_order")
+  isEditable          Boolean                    @default(false) @map("is_editable")
+  isCalculated        Boolean                    @default(true) @map("is_calculated")
+  isReference         Boolean                    @default(false) @map("is_reference")
+  janAmount           Decimal?                   @map("jan_amount") @db.Decimal(18, 2)
+  febAmount           Decimal?                   @map("feb_amount") @db.Decimal(18, 2)
+  marAmount           Decimal?                   @map("mar_amount") @db.Decimal(18, 2)
+  aprAmount           Decimal?                   @map("apr_amount") @db.Decimal(18, 2)
+  mayAmount           Decimal?                   @map("may_amount") @db.Decimal(18, 2)
+  junAmount           Decimal?                   @map("jun_amount") @db.Decimal(18, 2)
+  julAmount           Decimal?                   @map("jul_amount") @db.Decimal(18, 2)
+  augAmount           Decimal?                   @map("aug_amount") @db.Decimal(18, 2)
+  sepAmount           Decimal?                   @map("sep_amount") @db.Decimal(18, 2)
+  octAmount           Decimal?                   @map("oct_amount") @db.Decimal(18, 2)
+  novAmount           Decimal?                   @map("nov_amount") @db.Decimal(18, 2)
+  decAmount           Decimal?                   @map("dec_amount") @db.Decimal(18, 2)
+  fullYearAmount      Decimal?                   @map("full_year_amount") @db.Decimal(18, 2)
+  createdAt           DateTime                   @default(now()) @map("created_at")
+  snapshot            BudgetSnapshot             @relation(fields: [snapshotId], references: [snapshotId], onDelete: Cascade)
+  lineDetailBaselines BudgetLineDetailBaseline[]
+
+  @@unique([snapshotId, lineCode], map: "uq_budget_calc_line_baseline_code")
+  @@index([snapshotId, lineCode], map: "idx_bclb_snapshot_linecode")
+  @@map("budget_calc_line_baselines")
+}
+
+model BudgetChangeSet {
+  changeSetId          String                   @id @default(uuid()) @map("change_set_id") @db.Uuid
+  snapshotId           String                   @map("snapshot_id") @db.Uuid
+  changeSetNo          Int                      @map("change_set_no")
+  changeType           String                   @map("change_type") @db.VarChar(50)
+  statusBefore         String?                  @map("status_before") @db.VarChar(30)
+  statusAfter          String?                  @map("status_after") @db.VarChar(30)
+  changedBy            String?                  @map("changed_by") @db.Uuid
+  changedAt            DateTime                 @default(now()) @map("changed_at")
+  description          String?
+  sourceCommand        String?                  @map("source_command")
+  calcLineChanges      BudgetCalcLineChange[]
+  snapshot             BudgetSnapshot           @relation(fields: [snapshotId], references: [snapshotId], onDelete: Cascade)
+  lineDetailChanges    BudgetLineDetailChange[]
+  marketRentChangeSets MarketRentChangeSet[]
+
+  @@unique([snapshotId, changeSetNo], map: "uq_budget_change_set_no")
+  @@index([snapshotId, changeSetNo], map: "idx_bcs_snapshot_no")
+  @@map("budget_change_sets")
+}
+
+model BudgetCalcLineChange {
+  calcLineChangeId        String          @id @default(uuid()) @map("calc_line_change_id") @db.Uuid
+  coaId                   String?         @map("coa_id") @db.Uuid
+  changeSetId             String          @map("change_set_id") @db.Uuid
+  snapshotId              String          @map("snapshot_id") @db.Uuid
+  calcLineId              String?         @map("calc_line_id") @db.Uuid
+  changeSetNo             Int             @map("change_set_no")
+  lineCode                String          @map("line_code") @db.VarChar(100)
+  lineName                String?         @map("line_name") @db.VarChar(250)
+  lineType                String?         @map("line_type") @db.VarChar(50)
+  accountCode             String?         @map("account_code") @db.VarChar(20)
+  accountGroup            String?         @map("account_group") @db.VarChar(150)
+  changeScope             String          @default("SELECTED_MONTHS") @map("change_scope") @db.VarChar(30)
+  fromMonthNo             Int?            @map("from_month_no")
+  toMonthNo               Int?            @map("to_month_no")
+  janChanged              Boolean         @default(false) @map("jan_changed")
+  janAmount               Decimal?        @map("jan_amount") @db.Decimal(18, 2)
+  febChanged              Boolean         @default(false) @map("feb_changed")
+  febAmount               Decimal?        @map("feb_amount") @db.Decimal(18, 2)
+  marChanged              Boolean         @default(false) @map("mar_changed")
+  marAmount               Decimal?        @map("mar_amount") @db.Decimal(18, 2)
+  aprChanged              Boolean         @default(false) @map("apr_changed")
+  aprAmount               Decimal?        @map("apr_amount") @db.Decimal(18, 2)
+  mayChanged              Boolean         @default(false) @map("may_changed")
+  mayAmount               Decimal?        @map("may_amount") @db.Decimal(18, 2)
+  junChanged              Boolean         @default(false) @map("jun_changed")
+  junAmount               Decimal?        @map("jun_amount") @db.Decimal(18, 2)
+  julChanged              Boolean         @default(false) @map("jul_changed")
+  julAmount               Decimal?        @map("jul_amount") @db.Decimal(18, 2)
+  augChanged              Boolean         @default(false) @map("aug_changed")
+  augAmount               Decimal?        @map("aug_amount") @db.Decimal(18, 2)
+  sepChanged              Boolean         @default(false) @map("sep_changed")
+  sepAmount               Decimal?        @map("sep_amount") @db.Decimal(18, 2)
+  octChanged              Boolean         @default(false) @map("oct_changed")
+  octAmount               Decimal?        @map("oct_amount") @db.Decimal(18, 2)
+  novChanged              Boolean         @default(false) @map("nov_changed")
+  novAmount               Decimal?        @map("nov_amount") @db.Decimal(18, 2)
+  decChanged              Boolean         @default(false) @map("dec_changed")
+  decAmount               Decimal?        @map("dec_amount") @db.Decimal(18, 2)
+  fullYearAmount          Decimal?        @map("full_year_amount") @db.Decimal(18, 2)
+  globalAssumptionId      String?         @map("global_assumption_id") @db.Uuid
+  assumptionStatus        String?         @map("assumption_status") @db.VarChar(30)
+  assumptionDriver        String?         @map("assumption_driver") @db.VarChar(50)
+  assumptionSource        String?         @map("assumption_source") @db.VarChar(50)
+  assumptionStatusChanged Boolean         @default(false) @map("assumption_status_changed")
+  notesChanged            Boolean         @default(false) @map("notes_changed")
+  notes                   String?
+  createdAt               DateTime        @default(now()) @map("created_at")
+  calcLine                BudgetCalcLine? @relation(fields: [calcLineId], references: [calcLineId])
+  changeSet               BudgetChangeSet @relation(fields: [changeSetId], references: [changeSetId], onDelete: Cascade)
+  coa                     CoaAccount?     @relation(fields: [coaId], references: [id])
+  snapshot                BudgetSnapshot  @relation(fields: [snapshotId], references: [snapshotId], onDelete: Cascade)
+
+  @@unique([changeSetId, lineCode], map: "uq_bclc_changeset_line")
+  @@index([snapshotId, lineCode, changeSetNo], map: "idx_bclc_snapshot_linecode")
+  @@map("budget_calc_line_changes")
+}
+
+model BudgetLineDetail {
+  detailLineId                     String                   @id @default(uuid()) @map("detail_line_id") @db.Uuid
+  budgetItemId                     String?                  @map("budget_item_id") @db.Uuid
+  detailItemId                     String?                  @map("detail_item_id") @db.Uuid
+  snapshotId                       String                   @map("snapshot_id") @db.Uuid
+  calcLineId                       String                   @map("calc_line_id") @db.Uuid
+  companyId                        String                   @map("company_id") @db.Uuid
+  organisationId                   String                   @map("organisation_id") @db.Uuid
+  propertyId                       String                   @map("property_id") @db.Uuid
+  fiscalYear                       Int                      @map("fiscal_year")
+  snapshotType                     String                   @map("snapshot_type") @db.VarChar(40)
+  coaId                            String?                  @map("coa_id") @db.Uuid
+  accountCode                      String?                  @map("account_code") @db.VarChar(20)
+  accountName                      String?                  @map("account_name") @db.VarChar(250)
+  accountGroup                     String?                  @map("account_group") @db.VarChar(150)
+  lineCode                         String                   @map("line_code") @db.VarChar(100)
+  lineName                         String                   @map("line_name") @db.VarChar(500)
+  lineType                         String                   @map("line_type") @db.VarChar(50)
+  parentLineCode                   String?                  @map("parent_line_code") @db.VarChar(100)
+  sortOrder                        Int                      @default(0) @map("sort_order")
+  inputMethod                      String?                  @map("input_method") @db.VarChar(50)
+  inputValue                       Decimal?                 @map("input_value") @db.Decimal(18, 4)
+  percentValue                     Decimal?                 @map("percent_value") @db.Decimal(10, 6)
+  isEditable                       Boolean                  @default(true) @map("is_editable")
+  isCalculated                     Boolean                  @default(false) @map("is_calculated")
+  formulaJson                      Json?                    @map("formula_json")
+  janAmount                        Decimal?                 @map("jan_amount") @db.Decimal(18, 2)
+  febAmount                        Decimal?                 @map("feb_amount") @db.Decimal(18, 2)
+  marAmount                        Decimal?                 @map("mar_amount") @db.Decimal(18, 2)
+  aprAmount                        Decimal?                 @map("apr_amount") @db.Decimal(18, 2)
+  mayAmount                        Decimal?                 @map("may_amount") @db.Decimal(18, 2)
+  junAmount                        Decimal?                 @map("jun_amount") @db.Decimal(18, 2)
+  julAmount                        Decimal?                 @map("jul_amount") @db.Decimal(18, 2)
+  augAmount                        Decimal?                 @map("aug_amount") @db.Decimal(18, 2)
+  sepAmount                        Decimal?                 @map("sep_amount") @db.Decimal(18, 2)
+  octAmount                        Decimal?                 @map("oct_amount") @db.Decimal(18, 2)
+  novAmount                        Decimal?                 @map("nov_amount") @db.Decimal(18, 2)
+  decAmount                        Decimal?                 @map("dec_amount") @db.Decimal(18, 2)
+  fullYearAmount                   Decimal?                 @map("full_year_amount") @db.Decimal(18, 2)
+  comment                          String?
+  lineDisplay                      String?                  @map("line_display") @db.VarChar(500)
+  commentRequired                  Boolean                  @default(false) @map("comment_required")
+  isValid                          Boolean                  @default(true) @map("is_valid")
+  validationMessage                String?                  @map("validation_message")
+  globalAssumptionId               String?                  @map("global_assumption_id") @db.Uuid
+  assumptionStatus                 String?                  @map("assumption_status") @db.VarChar(30)
+  assumptionDriver                 String?                  @map("assumption_driver") @db.VarChar(50)
+  assumptionSource                 String?                  @map("assumption_source") @db.VarChar(50)
+  assumptionUpdatedAt              DateTime?                @map("assumption_updated_at") @db.Timestamp(3)
+  isAssumptionLine                 Boolean                  @default(false) @map("is_assumption_line")
+  createdAt                        DateTime                 @default(now()) @map("created_at")
+  updatedAt                        DateTime                 @default(now()) @map("updated_at")
+  coaAccountDetailItemDetailItemId String?                  @db.Uuid
+  lineDetailChanges                BudgetLineDetailChange[]
+  calcLine                         BudgetCalcLine           @relation(fields: [calcLineId], references: [calcLineId], onDelete: Cascade)
+  coaAccountDetailItem             CoaAccountDetailItem?    @relation(fields: [coaAccountDetailItemDetailItemId], references: [detailItemId])
+  snapshot                         BudgetSnapshot           @relation(fields: [snapshotId], references: [snapshotId], onDelete: Cascade)
+
+  @@index([calcLineId, sortOrder], map: "idx_bdl_calc_line_sort")
+  @@index([snapshotId, lineCode], map: "idx_bdl_snapshot_linecode")
+  @@map("budget_line_details")
+}
+
+model BudgetLineDetailBaseline {
+  detailLineBaselineId String                 @id @default(uuid()) @map("detail_line_baseline_id") @db.Uuid
+  snapshotId           String                 @map("snapshot_id") @db.Uuid
+  calcLineBaselineId   String                 @map("calc_line_baseline_id") @db.Uuid
+  sourceSnapshotId     String?                @map("source_snapshot_id") @db.Uuid
+  companyId            String                 @map("company_id") @db.Uuid
+  organisationId       String                 @map("organisation_id") @db.Uuid
+  propertyId           String                 @map("property_id") @db.Uuid
+  fiscalYear           Int                    @map("fiscal_year")
+  snapshotType         String                 @map("snapshot_type") @db.VarChar(40)
+  coaId                String?                @map("coa_id") @db.Uuid
+  accountCode          String?                @map("account_code") @db.VarChar(20)
+  accountName          String?                @map("account_name") @db.VarChar(250)
+  accountGroup         String?                @map("account_group") @db.VarChar(150)
+  lineCode             String                 @map("line_code") @db.VarChar(100)
+  lineName             String                 @map("line_name") @db.VarChar(500)
+  lineType             String                 @map("line_type") @db.VarChar(50)
+  parentLineCode       String?                @map("parent_line_code") @db.VarChar(100)
+  sortOrder            Int                    @default(0) @map("sort_order")
+  inputMethod          String?                @map("input_method") @db.VarChar(50)
+  inputValue           Decimal?               @map("input_value") @db.Decimal(18, 4)
+  percentValue         Decimal?               @map("percent_value") @db.Decimal(10, 6)
+  isEditable           Boolean                @default(true) @map("is_editable")
+  isCalculated         Boolean                @default(false) @map("is_calculated")
+  janAmount            Decimal?               @map("jan_amount") @db.Decimal(18, 2)
+  febAmount            Decimal?               @map("feb_amount") @db.Decimal(18, 2)
+  marAmount            Decimal?               @map("mar_amount") @db.Decimal(18, 2)
+  aprAmount            Decimal?               @map("apr_amount") @db.Decimal(18, 2)
+  mayAmount            Decimal?               @map("may_amount") @db.Decimal(18, 2)
+  junAmount            Decimal?               @map("jun_amount") @db.Decimal(18, 2)
+  julAmount            Decimal?               @map("jul_amount") @db.Decimal(18, 2)
+  augAmount            Decimal?               @map("aug_amount") @db.Decimal(18, 2)
+  sepAmount            Decimal?               @map("sep_amount") @db.Decimal(18, 2)
+  octAmount            Decimal?               @map("oct_amount") @db.Decimal(18, 2)
+  novAmount            Decimal?               @map("nov_amount") @db.Decimal(18, 2)
+  decAmount            Decimal?               @map("dec_amount") @db.Decimal(18, 2)
+  fullYearAmount       Decimal?               @map("full_year_amount") @db.Decimal(18, 2)
+  comment              String?
+  commentRequired      Boolean                @default(false) @map("comment_required")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  calcLineBaseline     BudgetCalcLineBaseline @relation(fields: [calcLineBaselineId], references: [calcLineBaselineId], onDelete: Cascade)
+  snapshot             BudgetSnapshot         @relation(fields: [snapshotId], references: [snapshotId], onDelete: Cascade)
+
+  @@unique([snapshotId, lineCode], map: "uq_budget_line_detail_baseline_code")
+  @@index([snapshotId, lineCode], map: "idx_bdlb_snapshot_linecode")
+  @@map("budget_line_detail_baselines")
+}
+
+model BudgetLineDetailChange {
+  detailLineChangeId      String                @id @default(uuid()) @map("detail_line_change_id") @db.Uuid
+  changeSetId             String                @map("change_set_id") @db.Uuid
+  snapshotId              String                @map("snapshot_id") @db.Uuid
+  detailLineId            String?               @map("detail_line_id") @db.Uuid
+  calcLineId              String?               @map("calc_line_id") @db.Uuid
+  coaId                   String?               @map("coa_id") @db.Uuid
+  detailItemId            String?               @map("detail_item_id") @db.Uuid
+  changeSetNo             Int                   @map("change_set_no")
+  lineCode                String                @map("line_code") @db.VarChar(100)
+  lineName                String?               @map("line_name") @db.VarChar(500)
+  lineType                String?               @map("line_type") @db.VarChar(50)
+  accountCode             String?               @map("account_code") @db.VarChar(20)
+  accountGroup            String?               @map("account_group") @db.VarChar(150)
+  changeScope             String                @default("SELECTED_MONTHS") @map("change_scope") @db.VarChar(30)
+  fromMonthNo             Int?                  @map("from_month_no")
+  toMonthNo               Int?                  @map("to_month_no")
+  inputMethodChanged      Boolean               @default(false) @map("input_method_changed")
+  inputMethod             String?               @map("input_method") @db.VarChar(50)
+  inputValueChanged       Boolean               @default(false) @map("input_value_changed")
+  inputValue              Decimal?              @map("input_value") @db.Decimal(18, 4)
+  percentValueChanged     Boolean               @default(false) @map("percent_value_changed")
+  percentValue            Decimal?              @map("percent_value") @db.Decimal(10, 6)
+  commentChanged          Boolean               @default(false) @map("comment_changed")
+  comment                 String?
+  lineDisplayChanged      Boolean               @default(false) @map("line_display_changed")
+  lineDisplay             String?               @map("line_display") @db.VarChar(500)
+  janChanged              Boolean               @default(false) @map("jan_changed")
+  janAmount               Decimal?              @map("jan_amount") @db.Decimal(18, 2)
+  febChanged              Boolean               @default(false) @map("feb_changed")
+  febAmount               Decimal?              @map("feb_amount") @db.Decimal(18, 2)
+  marChanged              Boolean               @default(false) @map("mar_changed")
+  marAmount               Decimal?              @map("mar_amount") @db.Decimal(18, 2)
+  aprChanged              Boolean               @default(false) @map("apr_changed")
+  aprAmount               Decimal?              @map("apr_amount") @db.Decimal(18, 2)
+  mayChanged              Boolean               @default(false) @map("may_changed")
+  mayAmount               Decimal?              @map("may_amount") @db.Decimal(18, 2)
+  junChanged              Boolean               @default(false) @map("jun_changed")
+  junAmount               Decimal?              @map("jun_amount") @db.Decimal(18, 2)
+  julChanged              Boolean               @default(false) @map("jul_changed")
+  julAmount               Decimal?              @map("jul_amount") @db.Decimal(18, 2)
+  augChanged              Boolean               @default(false) @map("aug_changed")
+  augAmount               Decimal?              @map("aug_amount") @db.Decimal(18, 2)
+  sepChanged              Boolean               @default(false) @map("sep_changed")
+  sepAmount               Decimal?              @map("sep_amount") @db.Decimal(18, 2)
+  octChanged              Boolean               @default(false) @map("oct_changed")
+  octAmount               Decimal?              @map("oct_amount") @db.Decimal(18, 2)
+  novChanged              Boolean               @default(false) @map("nov_changed")
+  novAmount               Decimal?              @map("nov_amount") @db.Decimal(18, 2)
+  decChanged              Boolean               @default(false) @map("dec_changed")
+  decAmount               Decimal?              @map("dec_amount") @db.Decimal(18, 2)
+  fullYearAmount          Decimal?              @map("full_year_amount") @db.Decimal(18, 2)
+  globalAssumptionId      String?               @map("global_assumption_id") @db.Uuid
+  assumptionStatus        String?               @map("assumption_status") @db.VarChar(30)
+  assumptionDriver        String?               @map("assumption_driver") @db.VarChar(50)
+  assumptionSource        String?               @map("assumption_source") @db.VarChar(50)
+  assumptionStatusChanged Boolean               @default(false) @map("assumption_status_changed")
+  createdAt               DateTime              @default(now()) @map("created_at")
+  calcLine                BudgetCalcLine?       @relation(fields: [calcLineId], references: [calcLineId])
+  changeSet               BudgetChangeSet       @relation(fields: [changeSetId], references: [changeSetId], onDelete: Cascade)
+  detailLine              BudgetLineDetail?     @relation(fields: [detailLineId], references: [detailLineId])
+  snapshot                BudgetSnapshot        @relation(fields: [snapshotId], references: [snapshotId], onDelete: Cascade)
+  coa                     CoaAccount?           @relation(fields: [coaId], references: [id], onDelete: SetNull)
+  detailItem              CoaAccountDetailItem? @relation(fields: [detailItemId], references: [detailItemId], onDelete: SetNull)
+
+  @@unique([changeSetId, detailLineId], map: "uq_bdlc_changeset_detail")
+  @@index([snapshotId, lineCode, changeSetNo], map: "idx_bdlc_snapshot_linecode")
+  @@map("budget_line_detail_changes")
+}
+
+model PeriodicDriver {
+  id             String       @id @default(uuid()) @db.Uuid
+  companyId      String       @map("company_id") @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  fiscalYear     Int          @map("fiscal_year")
+  monthFlag      Int          @map("month_flag")
+  numberOfDays   Int          @map("number_of_days")
+  calendarDays   Int          @map("calendar_days")
+  updatedBy      String?      @map("updated_by") @db.VarChar(100)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, fiscalYear, monthFlag])
+  @@index([companyId])
+  @@map("periodic_drivers")
+}
+
+model budget_drivers {
+  driver_id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  account_code        String   @db.VarChar(20)
+  account_name        String   @db.VarChar(250)
+  account_description String?  @db.VarChar(250)
+  account_rule        String   @db.VarChar(250)
+  amount              Decimal  @db.Decimal(18, 4)
+  amount_type         String   @db.VarChar(16)
+  modules             String?  @db.VarChar(50)
+  created_at          DateTime @default(now()) @db.Timestamp(6)
+}
+
+model MarketRentUnitRate {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+  propertyId     String @map("property_id") @db.Uuid
+  fiscalYear     Int    @map("fiscal_year")
+
+  unitTypeId    String? @map("unit_type_id") @db.Uuid
+  floorplanId   String? @map("floorplan_id") @db.VarChar(100)
+  floorplanName String  @map("floorplan_name") @db.VarChar(150)
+
+  squareFeet Decimal? @map("square_feet") @db.Decimal(18, 2)
+  unitCount  Int      @default(0) @map("unit_count")
+
+  method               String?  @db.VarChar(50)
+  inputAmount          Decimal? @map("input_amount") @db.Decimal(18, 2)
+  percentValue         Decimal? @map("percent_value") @db.Decimal(10, 4)
+  effectiveFromMonthNo Int?     @map("effective_from_month_no")
+
+  janAmount Decimal? @map("jan_amount") @db.Decimal(18, 2)
+  febAmount Decimal? @map("feb_amount") @db.Decimal(18, 2)
+  marAmount Decimal? @map("mar_amount") @db.Decimal(18, 2)
+  aprAmount Decimal? @map("apr_amount") @db.Decimal(18, 2)
+  mayAmount Decimal? @map("may_amount") @db.Decimal(18, 2)
+  junAmount Decimal? @map("jun_amount") @db.Decimal(18, 2)
+  julAmount Decimal? @map("jul_amount") @db.Decimal(18, 2)
+  augAmount Decimal? @map("aug_amount") @db.Decimal(18, 2)
+  sepAmount Decimal? @map("sep_amount") @db.Decimal(18, 2)
+  octAmount Decimal? @map("oct_amount") @db.Decimal(18, 2)
+  novAmount Decimal? @map("nov_amount") @db.Decimal(18, 2)
+  decAmount Decimal? @map("dec_amount") @db.Decimal(18, 2)
+
+  janTotal Decimal? @map("jan_total") @db.Decimal(18, 2)
+  febTotal Decimal? @map("feb_total") @db.Decimal(18, 2)
+  marTotal Decimal? @map("mar_total") @db.Decimal(18, 2)
+  aprTotal Decimal? @map("apr_total") @db.Decimal(18, 2)
+  mayTotal Decimal? @map("may_total") @db.Decimal(18, 2)
+  junTotal Decimal? @map("jun_total") @db.Decimal(18, 2)
+  julTotal Decimal? @map("jul_total") @db.Decimal(18, 2)
+  augTotal Decimal? @map("aug_total") @db.Decimal(18, 2)
+  sepTotal Decimal? @map("sep_total") @db.Decimal(18, 2)
+  octTotal Decimal? @map("oct_total") @db.Decimal(18, 2)
+  novTotal Decimal? @map("nov_total") @db.Decimal(18, 2)
+  decTotal Decimal? @map("dec_total") @db.Decimal(18, 2)
+
+  fullYearAmount Decimal? @map("full_year_amount") @db.Decimal(18, 2)
+  fullYearTotal  Decimal? @map("full_year_total") @db.Decimal(18, 2)
+
+  source    String   @default("MANUAL") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  property     Property     @relation(fields: [propertyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  changes MarketRentUnitChange[]
+
+  @@index([companyId, organisationId, propertyId, fiscalYear], map: "idx_market_rent_unit_rates_property_year")
+  @@index([propertyId, fiscalYear], map: "idx_market_rent_unit_rates_property_fy")
+  @@index([companyId, organisationId, propertyId, fiscalYear, floorplanName], map: "idx_market_rent_unit_rates_floorplan_name")
+  @@map("market_rent_unit_rates")
+}
+
+model LeaseUpUnit {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+  propertyId     String @map("property_id") @db.Uuid
+  fiscalYear     Int    @map("fiscal_year")
+
+  unitTypeId String @map("unit_type_id") @db.Uuid
+
+  occupiedUnits Int @default(0) @map("occupied_units")
+
+  janUnits Int @default(0) @map("jan_units")
+  febUnits Int @default(0) @map("feb_units")
+  marUnits Int @default(0) @map("mar_units")
+  aprUnits Int @default(0) @map("apr_units")
+  mayUnits Int @default(0) @map("may_units")
+  junUnits Int @default(0) @map("jun_units")
+  julUnits Int @default(0) @map("jul_units")
+  augUnits Int @default(0) @map("aug_units")
+  sepUnits Int @default(0) @map("sep_units")
+  octUnits Int @default(0) @map("oct_units")
+  novUnits Int @default(0) @map("nov_units")
+  decUnits Int @default(0) @map("dec_units")
+
+  janConcession Decimal? @default(0) @map("jan_concession") @db.Decimal(18, 2)
+  febConcession Decimal? @default(0) @map("feb_concession") @db.Decimal(18, 2)
+  marConcession Decimal? @default(0) @map("mar_concession") @db.Decimal(18, 2)
+  aprConcession Decimal? @default(0) @map("apr_concession") @db.Decimal(18, 2)
+  mayConcession Decimal? @default(0) @map("may_concession") @db.Decimal(18, 2)
+  junConcession Decimal? @default(0) @map("jun_concession") @db.Decimal(18, 2)
+  julConcession Decimal? @default(0) @map("jul_concession") @db.Decimal(18, 2)
+  augConcession Decimal? @default(0) @map("aug_concession") @db.Decimal(18, 2)
+  sepConcession Decimal? @default(0) @map("sep_concession") @db.Decimal(18, 2)
+  octConcession Decimal? @default(0) @map("oct_concession") @db.Decimal(18, 2)
+  novConcession Decimal? @default(0) @map("nov_concession") @db.Decimal(18, 2)
+  decConcession Decimal? @default(0) @map("dec_concession") @db.Decimal(18, 2)
+
+  concessionMethod  String?  @map("concession_method") @db.VarChar(50)
+  concessionInput   Decimal? @default(0) @map("concession_input") @db.Decimal(18, 2)
+  concessionBalance Decimal? @default(0) @map("concession_balance") @db.Decimal(18, 2)
+
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company      Company          @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  organisation Organisation     @relation(fields: [organisationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  property     Property         @relation(fields: [propertyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  unitType     PropertyUnitType @relation(fields: [unitTypeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([unitTypeId, fiscalYear], map: "uq_lease_up_units_unit_type_fy")
+  @@index([companyId, organisationId, propertyId, fiscalYear], map: "idx_lease_up_units_property_year")
+  @@index([propertyId, fiscalYear], map: "idx_lease_up_units_property_fy")
+  @@map("lease_up_units")
+}
+
+model RehabUnit {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+  propertyId     String @map("property_id") @db.Uuid
+  fiscalYear     Int    @map("fiscal_year")
+
+  unitTypeId String @map("unit_type_id") @db.Uuid
+
+  rehabMonth Int @default(0) @map("rehab_month")
+
+  rehabIncreaseRent Decimal @default(0) @map("rehab_increase_rent") @db.Decimal(18, 2)
+
+  janUnits Int @default(0) @map("jan_units")
+  febUnits Int @default(0) @map("feb_units")
+  marUnits Int @default(0) @map("mar_units")
+  aprUnits Int @default(0) @map("apr_units")
+  mayUnits Int @default(0) @map("may_units")
+  junUnits Int @default(0) @map("jun_units")
+  julUnits Int @default(0) @map("jul_units")
+  augUnits Int @default(0) @map("aug_units")
+  sepUnits Int @default(0) @map("sep_units")
+  octUnits Int @default(0) @map("oct_units")
+  novUnits Int @default(0) @map("nov_units")
+  decUnits Int @default(0) @map("dec_units")
+
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company      Company          @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  organisation Organisation     @relation(fields: [organisationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  property     Property         @relation(fields: [propertyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  unitType     PropertyUnitType @relation(fields: [unitTypeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([unitTypeId, fiscalYear], map: "uq_rehab_units_unit_type_fy")
+  @@index([companyId, organisationId, propertyId, fiscalYear], map: "idx_rehab_units_property_year")
+  @@index([propertyId, fiscalYear], map: "idx_rehab_units_property_fy")
+  @@map("rehab_units")
+}
+
+model MarketRentChangeSet {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+  propertyId     String @map("property_id") @db.Uuid
+  fiscalYear     Int    @map("fiscal_year")
+
+  changeSetNo Int @map("change_set_no")
+
+  budgetSnapshotId  String? @map("budget_snapshot_id") @db.Uuid
+  budgetChangeSetId String? @map("budget_change_set_id") @db.Uuid
+
+  changeType    String  @default("MARKET_RENT_EDIT") @map("change_type") @db.VarChar(50)
+  statusBefore  String? @map("status_before") @db.VarChar(30)
+  statusAfter   String  @default("DRAFT") @map("status_after") @db.VarChar(30)
+  sourceCommand String  @default("SAVE_MARKET_RENT") @map("source_command") @db.VarChar(100)
+
+  bulkMethod               String?  @map("bulk_method") @db.VarChar(50)
+  bulkInputAmount          Decimal? @map("bulk_input_amount") @db.Decimal(18, 2)
+  bulkPercentValue         Decimal? @map("bulk_percent_value") @db.Decimal(10, 4)
+  bulkEffectiveFromMonthNo Int?     @map("bulk_effective_from_month_no")
+
+  description String?
+
+  changedBy String   @map("changed_by") @db.Uuid
+  changedAt DateTime @default(now()) @map("changed_at") @db.Timestamp(3)
+
+  approvedBy String?   @map("approved_by") @db.Uuid
+  approvedAt DateTime? @map("approved_at") @db.Timestamp(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+
+  company         Company          @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  organisation    Organisation     @relation(fields: [organisationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  property        Property         @relation(fields: [propertyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  budgetSnapshot  BudgetSnapshot?  @relation(fields: [budgetSnapshotId], references: [snapshotId], onDelete: SetNull, onUpdate: Cascade)
+  budgetChangeSet BudgetChangeSet? @relation(fields: [budgetChangeSetId], references: [changeSetId], onDelete: SetNull, onUpdate: Cascade)
+
+  changes MarketRentUnitChange[]
+
+  @@unique([companyId, organisationId, propertyId, fiscalYear, changeSetNo], map: "uq_market_rent_change_sets_no")
+  @@index([companyId, organisationId, propertyId, fiscalYear], map: "idx_market_rent_change_sets_property_year")
+  @@index([statusAfter], map: "idx_market_rent_change_sets_status")
+  @@index([changedBy], map: "idx_market_rent_change_sets_changed_by")
+  @@index([approvedBy], map: "idx_market_rent_change_sets_approved_by")
+  @@map("market_rent_change_sets")
+}
+
+model MarketRentUnitChange {
+  id String @id @default(uuid()) @db.Uuid
+
+  changeSetId String @map("change_set_id") @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+  propertyId     String @map("property_id") @db.Uuid
+  fiscalYear     Int    @map("fiscal_year")
+
+  marketRentRateId String? @map("market_rent_rate_id") @db.Uuid
+
+  unitTypeId    String? @map("unit_type_id") @db.Uuid
+  floorplanId   String? @map("floorplan_id") @db.VarChar(100)
+  floorplanName String  @map("floorplan_name") @db.VarChar(150)
+
+  squareFeet Decimal? @map("square_feet") @db.Decimal(18, 2)
+  unitCount  Int      @default(0) @map("unit_count")
+
+  changeScope String @default("SELECTED_MONTHS") @map("change_scope") @db.VarChar(30)
+
+  methodChanged Boolean @default(false) @map("method_changed")
+  method        String? @db.VarChar(50)
+
+  inputAmountChanged Boolean  @default(false) @map("input_amount_changed")
+  inputAmount        Decimal? @map("input_amount") @db.Decimal(18, 2)
+
+  percentValueChanged Boolean  @default(false) @map("percent_value_changed")
+  percentValue        Decimal? @map("percent_value") @db.Decimal(10, 4)
+
+  effectiveFromMonthNo Int? @map("effective_from_month_no")
+
+  janChanged Boolean  @default(false) @map("jan_changed")
+  janAmount  Decimal? @map("jan_amount") @db.Decimal(18, 2)
+  janTotal   Decimal? @map("jan_total") @db.Decimal(18, 2)
+
+  febChanged Boolean  @default(false) @map("feb_changed")
+  febAmount  Decimal? @map("feb_amount") @db.Decimal(18, 2)
+  febTotal   Decimal? @map("feb_total") @db.Decimal(18, 2)
+
+  marChanged Boolean  @default(false) @map("mar_changed")
+  marAmount  Decimal? @map("mar_amount") @db.Decimal(18, 2)
+  marTotal   Decimal? @map("mar_total") @db.Decimal(18, 2)
+
+  aprChanged Boolean  @default(false) @map("apr_changed")
+  aprAmount  Decimal? @map("apr_amount") @db.Decimal(18, 2)
+  aprTotal   Decimal? @map("apr_total") @db.Decimal(18, 2)
+
+  mayChanged Boolean  @default(false) @map("may_changed")
+  mayAmount  Decimal? @map("may_amount") @db.Decimal(18, 2)
+  mayTotal   Decimal? @map("may_total") @db.Decimal(18, 2)
+
+  junChanged Boolean  @default(false) @map("jun_changed")
+  junAmount  Decimal? @map("jun_amount") @db.Decimal(18, 2)
+  junTotal   Decimal? @map("jun_total") @db.Decimal(18, 2)
+
+  julChanged Boolean  @default(false) @map("jul_changed")
+  julAmount  Decimal? @map("jul_amount") @db.Decimal(18, 2)
+  julTotal   Decimal? @map("jul_total") @db.Decimal(18, 2)
+
+  augChanged Boolean  @default(false) @map("aug_changed")
+  augAmount  Decimal? @map("aug_amount") @db.Decimal(18, 2)
+  augTotal   Decimal? @map("aug_total") @db.Decimal(18, 2)
+
+  sepChanged Boolean  @default(false) @map("sep_changed")
+  sepAmount  Decimal? @map("sep_amount") @db.Decimal(18, 2)
+  sepTotal   Decimal? @map("sep_total") @db.Decimal(18, 2)
+
+  octChanged Boolean  @default(false) @map("oct_changed")
+  octAmount  Decimal? @map("oct_amount") @db.Decimal(18, 2)
+  octTotal   Decimal? @map("oct_total") @db.Decimal(18, 2)
+
+  novChanged Boolean  @default(false) @map("nov_changed")
+  novAmount  Decimal? @map("nov_amount") @db.Decimal(18, 2)
+  novTotal   Decimal? @map("nov_total") @db.Decimal(18, 2)
+
+  decChanged Boolean  @default(false) @map("dec_changed")
+  decAmount  Decimal? @map("dec_amount") @db.Decimal(18, 2)
+  decTotal   Decimal? @map("dec_total") @db.Decimal(18, 2)
+
+  fullYearAmount Decimal? @map("full_year_amount") @db.Decimal(18, 2)
+  fullYearTotal  Decimal? @map("full_year_total") @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+
+  changeSet MarketRentChangeSet @relation(fields: [changeSetId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  property     Property     @relation(fields: [propertyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  marketRentRate MarketRentUnitRate? @relation(fields: [marketRentRateId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([changeSetId], map: "idx_market_rent_unit_changes_change_set")
+  @@index([companyId, organisationId, propertyId, fiscalYear], map: "idx_market_rent_unit_changes_property_year")
+  @@index([changeSetId, floorplanName], map: "idx_market_rent_unit_changes_floorplan_name")
+  @@map("market_rent_unit_changes")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model ProfitAndLoss {
+  Id          String? @db.Uuid
+  property_id String? @db.Uuid
+  assignedto  String? @db.Uuid
+  comments    String?
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model ProfitandLossHistory {
+  id           String?  @db.Uuid
+  profitlossid String?  @db.Uuid
+  status       String[] @db.VarChar(100)
+  comments     String?
+
+  @@ignore
+}
+
+model NonIncomeUnit {
+  id             String @id @default(uuid()) @db.Uuid
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+  propertyId     String @map("property_id") @db.Uuid
+  propertyUnitId String @map("property_unit_id") @db.Uuid
+
+  use        String  @db.VarChar(50)
+  aptType    String  @map("apt_type") @db.VarChar(150)
+  unitNumber String  @map("unit_number") @db.VarChar(100)
+  reason     String?
+
+  fiscalYear Int @map("fiscal_year")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+
+  company      Company      @relation(fields: [companyId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  property     Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyUnit PropertyUnit @relation(fields: [propertyUnitId], references: [id])
+
+  @@unique([propertyUnitId, fiscalYear])
+  @@index([companyId, organisationId, propertyId, fiscalYear])
+  @@map("non_income_units")
+}
+
+model PropertyYearEndActual {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  organisationId String   @map("organisation_id") @db.Uuid
+  propertyId     String   @map("property_id") @db.Uuid
+  propertyCode   String   @map("property_code") @db.VarChar(100)
+  fiscalYear     Int      @map("fiscal_year")
+  postMonth      DateTime @map("post_month") @db.Date
+  coaId          String?  @map("coa_id") @db.Uuid
+  accountCode    String   @map("account_code") @db.VarChar(100)
+  accountName    String   @map("account_name") @db.VarChar(500)
+  actualAmount   Decimal? @map("actual_amount") @db.Decimal(18, 2)
+  budgetAmount   Decimal? @map("budget_amount") @db.Decimal(18, 2)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@unique([companyId, organisationId, propertyId, fiscalYear, postMonth, accountCode], map: "property_year_end_actuals_unique")
+  @@unique([companyId, organisationId, propertyId, fiscalYear, accountCode], map: "property_year_end_actuals_no_postmonth_unique")
+  @@index([companyId, organisationId, propertyId, fiscalYear], map: "property_year_end_actuals_property_year_idx")
+  @@index([propertyCode], map: "property_year_end_actuals_property_code_idx")
+  @@index([accountCode], map: "property_year_end_actuals_account_code_idx")
+  @@index([coaId], map: "property_year_end_actuals_coa_id_idx")
+  @@map("property_year_end_actuals")
+}
+
+model SystemRoleProperty {
+  id           String     @id @default(uuid()) @db.Uuid
+  systemRoleId String     @map("system_role_id") @db.Uuid
+  propertyId   String     @map("property_id") @db.Uuid
+  systemRole   SystemRole @relation(fields: [systemRoleId], references: [id], onDelete: Cascade)
+  property     Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([systemRoleId, propertyId])
+  @@index([systemRoleId])
+  @@index([propertyId])
+  @@map("system_role_property")
+}
+
+model UserNotification {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  organisationId String   @map("organisation_id") @db.Uuid
+  title          String   @db.VarChar(255)
+  message        String   @db.Text
+  navigationLink String?  @map("navigation_link") @db.VarChar(500)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([organisationId])
+  @@map("user_notifications")
+}
+
+model AccountFormulaReport {
+  id          String   @id @default(uuid()) @db.Uuid
+  accountCode String   @map("account_code") @db.VarChar(20)
+  accountName String   @map("account_name") @db.VarChar(250)
+  formula     String   @map("account_formula") @db.VarChar(250)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([accountCode])
+  @@map("account_formula_reports")
+}
+
+model BudgetProfitLossAdjustment {
+  profitLossAdjustmentId String   @id @default(uuid()) @map("profit_loss_adjustment_id") @db.Uuid
+  calcLineChangeId       String   @map("calc_line_change_id") @db.Uuid
+  coaId                  String?  @map("coa_id") @db.Uuid
+  snapshotId             String   @map("snapshot_id") @db.Uuid
+  accountCode            String?  @map("account_code") @db.VarChar(20)
+  accountName            String   @map("account_name") @db.VarChar(100)
+  janAmount              Decimal? @map("jan_amount") @db.Decimal(18, 2)
+  febAmount              Decimal? @map("feb_amount") @db.Decimal(18, 2)
+  marAmount              Decimal? @map("mar_amount") @db.Decimal(18, 2)
+  aprAmount              Decimal? @map("apr_amount") @db.Decimal(18, 2)
+  mayAmount              Decimal? @map("may_amount") @db.Decimal(18, 2)
+  junAmount              Decimal? @map("jun_amount") @db.Decimal(18, 2)
+  julAmount              Decimal? @map("jul_amount") @db.Decimal(18, 2)
+  augAmount              Decimal? @map("aug_amount") @db.Decimal(18, 2)
+  sepAmount              Decimal? @map("sep_amount") @db.Decimal(18, 2)
+  octAmount              Decimal? @map("oct_amount") @db.Decimal(18, 2)
+  novAmount              Decimal? @map("nov_amount") @db.Decimal(18, 2)
+  decAmount              Decimal? @map("dec_amount") @db.Decimal(18, 2)
+  fullYearAmount         Decimal? @map("full_year_amount") @db.Decimal(18, 2)
+  comments               String?
+  createdAt              DateTime @default(now()) @map("created_at")
+  createdBy              String?  @map("created_by") @db.Uuid
+
+  @@unique([snapshotId, accountCode], map: "uq_bpla_snapshot_accountcode")
+  @@index([snapshotId, accountCode], map: "idx_bpla_snapshot_accountcode")
+  @@map("profit_loss_adjustments")
+}

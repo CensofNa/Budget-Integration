@@ -1,0 +1,420 @@
+model PropertyBoxScoreMonthly {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+
+  propertyId   String? @map("property_id") @db.Uuid
+  propertyCode String? @map("property_code") @db.VarChar(100)
+  propertyName String? @map("property_name") @db.VarChar(255)
+
+  fiscalYear  Int      @map("fiscal_year")
+  reportMonth DateTime @map("report_month") @db.Date
+  periodStart DateTime @map("period_start") @db.Date
+  periodEnd   DateTime @map("period_end") @db.Date
+
+  summarizeBy String @default("property_name") @map("summarize_by") @db.VarChar(100)
+
+  totalUnits         Decimal? @map("total_units") @db.Decimal(18, 4)
+  excludedUnits      Decimal? @map("excluded_units") @db.Decimal(18, 4)
+  totalRentableUnits Decimal? @map("total_rentable_units") @db.Decimal(18, 4)
+
+  occupiedUnits  Decimal? @map("occupied_units") @db.Decimal(18, 4)
+  vacantUnits    Decimal? @map("vacant_units") @db.Decimal(18, 4)
+  availableUnits Decimal? @map("available_units") @db.Decimal(18, 4)
+
+  occupiedNoNoticeUnits Decimal? @map("occupied_no_notice_units") @db.Decimal(18, 4)
+  noticeRentedUnits     Decimal? @map("notice_rented_units") @db.Decimal(18, 4)
+  noticeUnrentedUnits   Decimal? @map("notice_unrented_units") @db.Decimal(18, 4)
+  vacantRentedUnits     Decimal? @map("vacant_rented_units") @db.Decimal(18, 4)
+  vacantUnrentedUnits   Decimal? @map("vacant_unrented_units") @db.Decimal(18, 4)
+
+  percentOccupied          Decimal? @map("percent_occupied") @db.Decimal(18, 8)
+  percentLeased            Decimal? @map("percent_leased") @db.Decimal(18, 8)
+  avgNotExposedLeasedUnits Decimal? @map("avg_not_exposed_leased_units") @db.Decimal(18, 8)
+  avgExposure              Decimal? @map("avg_exposure") @db.Decimal(18, 8)
+
+  avgSquareFeet    Decimal? @map("avg_square_feet") @db.Decimal(18, 6)
+  avgMarketRent    Decimal? @map("avg_market_rent") @db.Decimal(18, 6)
+  scheduledRent    Decimal? @map("scheduled_rent") @db.Decimal(18, 6)
+  avgBudgetedRent  Decimal? @map("avg_budgeted_rent") @db.Decimal(18, 6)
+  scheduledCharges Decimal? @map("scheduled_charges") @db.Decimal(18, 6)
+  scheduledOther   Decimal? @map("scheduled_other") @db.Decimal(18, 6)
+  effectiveRent    Decimal? @map("effective_rent") @db.Decimal(18, 6)
+  actualRent       Decimal? @map("actual_rent") @db.Decimal(18, 6)
+
+  moveIns      Decimal? @map("move_ins") @db.Decimal(18, 4)
+  mtmStarted   Decimal? @map("mtm_started") @db.Decimal(18, 4)
+  mtmConverted Decimal? @map("mtm_converted") @db.Decimal(18, 4)
+
+  renewalApplicationCompletions Decimal? @map("renewal_application_completions") @db.Decimal(18, 4)
+  renewalLeaseApprovals         Decimal? @map("renewal_lease_approvals") @db.Decimal(18, 4)
+  renewalLeaseCreations         Decimal? @map("renewal_lease_creations") @db.Decimal(18, 4)
+
+  transfersCompleted Decimal? @map("transfers_completed") @db.Decimal(18, 4)
+  notices            Decimal? @db.Decimal(18, 4)
+  moveOuts           Decimal? @map("move_outs") @db.Decimal(18, 4)
+  renewals           Decimal? @db.Decimal(18, 4)
+  renewalTransfers   Decimal? @map("renewal_transfers") @db.Decimal(18, 4)
+  skips              Decimal? @db.Decimal(18, 4)
+  leasesExpiring     Decimal? @map("leases_expiring") @db.Decimal(18, 4)
+  evictionsCompleted Decimal? @map("evictions_completed") @db.Decimal(18, 4)
+  leasesApproved     Decimal? @map("leases_approved") @db.Decimal(18, 4)
+
+  cloLeads        Decimal? @map("clo_leads") @db.Decimal(18, 4)
+  newLeads        Decimal? @map("new_leads") @db.Decimal(18, 4)
+  email           Decimal? @db.Decimal(18, 4)
+  call            Decimal? @db.Decimal(18, 4)
+  online          Decimal? @db.Decimal(18, 4)
+  referredContact Decimal? @map("referred_contact") @db.Decimal(18, 4)
+  visitTour       Decimal? @map("visit_tour") @db.Decimal(18, 4)
+  offsite         Decimal? @db.Decimal(18, 4)
+  chat            Decimal? @db.Decimal(18, 4)
+  text            Decimal? @db.Decimal(18, 4)
+  other           Decimal? @db.Decimal(18, 4)
+
+  leadEmail Decimal? @map("lead_email") @db.Decimal(18, 4)
+  leadCall  Decimal? @map("lead_call") @db.Decimal(18, 4)
+  leadChat  Decimal? @map("lead_chat") @db.Decimal(18, 4)
+  leadText  Decimal? @map("lead_text") @db.Decimal(18, 4)
+
+  uniqueVisitsTours Decimal? @map("unique_visits_tours") @db.Decimal(18, 4)
+  onsiteVisit       Decimal? @map("onsite_visit") @db.Decimal(18, 4)
+  unitTour          Decimal? @map("unit_tour") @db.Decimal(18, 4)
+  propertyTour      Decimal? @map("property_tour") @db.Decimal(18, 4)
+  selfGuidedTour    Decimal? @map("self_guided_tour") @db.Decimal(18, 4)
+  virtualTour       Decimal? @map("virtual_tour") @db.Decimal(18, 4)
+
+  prospectsCancelled             Decimal? @map("prospects_cancelled") @db.Decimal(18, 4)
+  started                        Decimal? @db.Decimal(18, 4)
+  applicationsPartiallyCompleted Decimal? @map("applications_partially_completed") @db.Decimal(18, 4)
+  completed                      Decimal? @db.Decimal(18, 4)
+  completedCancelled             Decimal? @map("completed_cancelled") @db.Decimal(18, 4)
+  denied                         Decimal? @db.Decimal(18, 4)
+  approved                       Decimal? @db.Decimal(18, 4)
+  approvedCancelled              Decimal? @map("approved_cancelled") @db.Decimal(18, 4)
+  leaseCompleted                 Decimal? @map("lease_completed") @db.Decimal(18, 4)
+  leaseCompletedCancelled        Decimal? @map("lease_completed_cancelled") @db.Decimal(18, 4)
+  abandoned                      Decimal? @db.Decimal(18, 4)
+  leaseApproved                  Decimal? @map("lease_approved") @db.Decimal(18, 4)
+
+  readyVacantRented      Decimal? @map("ready_vacant_rented") @db.Decimal(18, 4)
+  readyVacantUnrented    Decimal? @map("ready_vacant_unrented") @db.Decimal(18, 4)
+  readyTotal             Decimal? @map("ready_total") @db.Decimal(18, 4)
+  notReadyVacantRented   Decimal? @map("not_ready_vacant_rented") @db.Decimal(18, 4)
+  notReadyVacantUnrented Decimal? @map("not_ready_vacant_unrented") @db.Decimal(18, 4)
+  notReadyTotal          Decimal? @map("not_ready_total") @db.Decimal(18, 4)
+  makeReadySummaryTotal  Decimal? @map("make_ready_summary_total") @db.Decimal(18, 4)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@unique([companyId, organisationId, propertyId, fiscalYear, reportMonth, summarizeBy], map: "property_box_score_monthly_unique")
+  @@index([companyId, organisationId, propertyId, fiscalYear])
+  @@index([propertyId, fiscalYear])
+  @@index([propertyCode])
+  @@index([reportMonth])
+  @@map("property_box_score_monthly")
+}
+
+model PropertyBoxScoreUnitTypeMonthly {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+
+  propertyId   String? @map("property_id") @db.Uuid
+  propertyCode String? @map("property_code") @db.VarChar(100)
+  propertyName String? @map("property_name") @db.VarChar(255)
+
+  fiscalYear  Int      @map("fiscal_year")
+  reportMonth DateTime @map("report_month") @db.Date
+  periodStart DateTime @map("period_start") @db.Date
+  periodEnd   DateTime @map("period_end") @db.Date
+
+  unitType           String  @map("unit_type") @db.VarChar(255)
+  unitTypeLookupCode String? @map("unit_type_lookup_code") @db.VarChar(100)
+
+  propertyFloorplan String?  @map("property_floorplan") @db.VarChar(255)
+  buildingName      String?  @map("building_name") @db.VarChar(255)
+  numberOfBedrooms  String?  @map("number_of_bedrooms") @db.VarChar(50)
+  numberOfBathrooms Decimal? @map("number_of_bathrooms") @db.Decimal(18, 4)
+
+  avgSquareFeet    Decimal? @map("avg_square_feet") @db.Decimal(18, 6)
+  avgMarketRent    Decimal? @map("avg_market_rent") @db.Decimal(18, 6)
+  scheduledRent    Decimal? @map("scheduled_rent") @db.Decimal(18, 6)
+  avgBudgetedRent  Decimal? @map("avg_budgeted_rent") @db.Decimal(18, 6)
+  scheduledCharges Decimal? @map("scheduled_charges") @db.Decimal(18, 6)
+  scheduledOther   Decimal? @map("scheduled_other") @db.Decimal(18, 6)
+  effectiveRent    Decimal? @map("effective_rent") @db.Decimal(18, 6)
+  actualRent       Decimal? @map("actual_rent") @db.Decimal(18, 6)
+
+  totalUnits         Decimal? @map("total_units") @db.Decimal(18, 4)
+  excludedUnits      Decimal? @map("excluded_units") @db.Decimal(18, 4)
+  totalRentableUnits Decimal? @map("total_rentable_units") @db.Decimal(18, 4)
+
+  occupiedUnits  Decimal? @map("occupied_units") @db.Decimal(18, 4)
+  vacantUnits    Decimal? @map("vacant_units") @db.Decimal(18, 4)
+  availableUnits Decimal? @map("available_units") @db.Decimal(18, 4)
+
+  occupiedNoNoticeUnits Decimal? @map("occupied_no_notice_units") @db.Decimal(18, 4)
+  noticeRentedUnits     Decimal? @map("notice_rented_units") @db.Decimal(18, 4)
+  noticeUnrentedUnits   Decimal? @map("notice_unrented_units") @db.Decimal(18, 4)
+  vacantRentedUnits     Decimal? @map("vacant_rented_units") @db.Decimal(18, 4)
+  vacantUnrentedUnits   Decimal? @map("vacant_unrented_units") @db.Decimal(18, 4)
+
+  percentOccupied          Decimal? @map("percent_occupied") @db.Decimal(18, 8)
+  percentLeased            Decimal? @map("percent_leased") @db.Decimal(18, 8)
+  avgNotExposedLeasedUnits Decimal? @map("avg_not_exposed_leased_units") @db.Decimal(18, 8)
+  avgExposure              Decimal? @map("avg_exposure") @db.Decimal(18, 8)
+
+  moveIns      Decimal? @map("move_ins") @db.Decimal(18, 4)
+  mtmStarted   Decimal? @map("mtm_started") @db.Decimal(18, 4)
+  mtmConverted Decimal? @map("mtm_converted") @db.Decimal(18, 4)
+
+  renewalApplicationCompletions Decimal? @map("renewal_application_completions") @db.Decimal(18, 4)
+  renewalLeaseApprovals         Decimal? @map("renewal_lease_approvals") @db.Decimal(18, 4)
+  renewalLeaseCreations         Decimal? @map("renewal_lease_creations") @db.Decimal(18, 4)
+
+  transfersCompleted Decimal? @map("transfers_completed") @db.Decimal(18, 4)
+  notices            Decimal? @db.Decimal(18, 4)
+  moveOuts           Decimal? @map("move_outs") @db.Decimal(18, 4)
+  renewals           Decimal? @db.Decimal(18, 4)
+  renewalTransfers   Decimal? @map("renewal_transfers") @db.Decimal(18, 4)
+  skips              Decimal? @db.Decimal(18, 4)
+  leasesExpiring     Decimal? @map("leases_expiring") @db.Decimal(18, 4)
+  evictionsCompleted Decimal? @map("evictions_completed") @db.Decimal(18, 4)
+  leasesApproved     Decimal? @map("leases_approved") @db.Decimal(18, 4)
+
+  cloLeads        Decimal? @map("clo_leads") @db.Decimal(18, 4)
+  newLeads        Decimal? @map("new_leads") @db.Decimal(18, 4)
+  email           Decimal? @db.Decimal(18, 4)
+  call            Decimal? @db.Decimal(18, 4)
+  online          Decimal? @db.Decimal(18, 4)
+  referredContact Decimal? @map("referred_contact") @db.Decimal(18, 4)
+  visitTour       Decimal? @map("visit_tour") @db.Decimal(18, 4)
+  offsite         Decimal? @db.Decimal(18, 4)
+  chat            Decimal? @db.Decimal(18, 4)
+  text            Decimal? @db.Decimal(18, 4)
+  other           Decimal? @db.Decimal(18, 4)
+
+  leadEmail Decimal? @map("lead_email") @db.Decimal(18, 4)
+  leadCall  Decimal? @map("lead_call") @db.Decimal(18, 4)
+  leadChat  Decimal? @map("lead_chat") @db.Decimal(18, 4)
+  leadText  Decimal? @map("lead_text") @db.Decimal(18, 4)
+
+  uniqueVisitsTours Decimal? @map("unique_visits_tours") @db.Decimal(18, 4)
+  onsiteVisit       Decimal? @map("onsite_visit") @db.Decimal(18, 4)
+  unitTour          Decimal? @map("unit_tour") @db.Decimal(18, 4)
+  propertyTour      Decimal? @map("property_tour") @db.Decimal(18, 4)
+  selfGuidedTour    Decimal? @map("self_guided_tour") @db.Decimal(18, 4)
+  virtualTour       Decimal? @map("virtual_tour") @db.Decimal(18, 4)
+
+  prospectsCancelled             Decimal? @map("prospects_cancelled") @db.Decimal(18, 4)
+  started                        Decimal? @db.Decimal(18, 4)
+  applicationsPartiallyCompleted Decimal? @map("applications_partially_completed") @db.Decimal(18, 4)
+  completed                      Decimal? @db.Decimal(18, 4)
+  completedCancelled             Decimal? @map("completed_cancelled") @db.Decimal(18, 4)
+  denied                         Decimal? @db.Decimal(18, 4)
+  approved                       Decimal? @db.Decimal(18, 4)
+  approvedCancelled              Decimal? @map("approved_cancelled") @db.Decimal(18, 4)
+  leaseCompleted                 Decimal? @map("lease_completed") @db.Decimal(18, 4)
+  leaseCompletedCancelled        Decimal? @map("lease_completed_cancelled") @db.Decimal(18, 4)
+  abandoned                      Decimal? @db.Decimal(18, 4)
+  leaseApproved                  Decimal? @map("lease_approved") @db.Decimal(18, 4)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@unique([companyId, organisationId, propertyId, fiscalYear, reportMonth, unitType], map: "company_organisation_property_fiscal_year_unit_type")
+  @@index([companyId, organisationId, propertyId, fiscalYear])
+  @@index([propertyCode])
+  @@index([unitType])
+  @@index([reportMonth])
+  @@map("property_box_score_unit_type_monthly")
+}
+
+model PropertyResidentRetentionMonthly {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+
+  propertyId   String? @map("property_id") @db.Uuid
+  propertyCode String? @map("property_code") @db.VarChar(100)
+  propertyName String? @map("property_name") @db.VarChar(255)
+
+  fiscalYear  Int      @map("fiscal_year")
+  reportMonth DateTime @map("report_month") @db.Date
+
+  periodStart DateTime? @map("period_start") @db.Date
+  periodEnd   DateTime? @map("period_end") @db.Date
+
+  months    String? @db.VarChar(50)
+  unitType  String? @map("unit_type") @db.VarChar(255)
+  floorPlan String? @map("floor_plan") @db.VarChar(255)
+
+  units              Decimal? @db.Decimal(18, 4)
+  totalRentableUnits Decimal? @map("total_rentable_units") @db.Decimal(18, 4)
+
+  expiringLeases Decimal? @map("expiring_leases") @db.Decimal(18, 4)
+
+  earlyMoveOut           Decimal? @map("early_move_out") @db.Decimal(18, 4)
+  earlyMoveOutPercentage Decimal? @map("early_move_out_percentage") @db.Decimal(18, 8)
+
+  ntv           Decimal? @db.Decimal(18, 4)
+  ntvPercentage Decimal? @map("ntv_percentage") @db.Decimal(18, 8)
+
+  renewals          Decimal? @db.Decimal(18, 4)
+  renewalPercentage Decimal? @map("renewal_percentage") @db.Decimal(18, 8)
+
+  renewalTransfers           Decimal? @map("renewal_transfers") @db.Decimal(18, 4)
+  renewalTransfersPercentage Decimal? @map("renewal_transfers_percentage") @db.Decimal(18, 8)
+
+  transfers           Decimal? @db.Decimal(18, 4)
+  transfersPercentage Decimal? @map("transfers_percentage") @db.Decimal(18, 8)
+
+  pending           Decimal? @db.Decimal(18, 4)
+  pendingPercentage Decimal? @map("pending_percentage") @db.Decimal(18, 8)
+
+  mtm           Decimal? @db.Decimal(18, 4)
+  mtmPercentage Decimal? @map("mtm_percentage") @db.Decimal(18, 8)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@unique([companyId, organisationId, propertyId, fiscalYear, reportMonth], map: "property_resident_retention_monthly_unique")
+  @@index([companyId, organisationId, propertyId, fiscalYear])
+  @@index([propertyId, fiscalYear])
+  @@index([propertyCode])
+  @@index([reportMonth])
+  @@index([unitType])
+  @@index([floorPlan])
+  @@map("property_resident_retention_monthly")
+}
+
+model OccupancyPreviousYear {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  budgetYear Int    @map("budget_year")
+
+  lyDecOccupancyUnits        Decimal @default(0) @map("ly_dec_occupancy_units") @db.Decimal(18, 4)
+  defaultLyDecOccupancyUnits Decimal @default(0) @map("default_ly_dec_occupancy_units") @db.Decimal(18, 4)
+
+  cyOccupiedUnits      Decimal @default(0) @map("cy_occupied_units") @db.Decimal(18, 4)
+  cyTotalUnits         Decimal @default(0) @map("cy_total_units") @db.Decimal(18, 4)
+  cyTotalRentableUnits Decimal @default(0) @map("cy_total_rentable_units") @db.Decimal(18, 4)
+
+  source       String?
+  isOverridden Boolean @default(false) @map("is_overridden")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([propertyId, budgetYear], map: "uq_occupancy_previous_year_property_budget_year")
+  @@map("occupancy_previous_year")
+}
+
+model OccupancyMaster {
+  id              String  @id @db.Uuid
+  groupName       String  @map("group_name")
+  descriptionName String  @map("description_name")
+  isEditable      Boolean @default(false) @map("is_Editable")
+
+  details OccupancyTransactionDetail[]
+
+  @@map("occupancy_master")
+}
+
+model OccupancyTransaction {
+  id         String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  propertyId String?                      @map("property_id") @db.Uuid
+  budgetYear String                       @map("budget_year")
+  createdAt  DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime                     @default(now()) @map("updated_at") @db.Timestamptz(6)
+  details    OccupancyTransactionDetail[]
+
+  @@unique([propertyId, budgetYear], map: "uq_occupancy_transaction_property_budget_year")
+  @@map("occupancy_transaction")
+}
+
+model OccupancyTransactionDetail {
+  id                     String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  method                 String?
+  inputValue             Decimal?              @map("input_value") @db.Decimal(18, 4)
+  pct                    Decimal?              @db.Decimal(9, 4)
+  jan                    Decimal?              @db.Decimal(18, 4)
+  feb                    Decimal?              @db.Decimal(18, 4)
+  mar                    Decimal?              @db.Decimal(18, 4)
+  apr                    Decimal?              @db.Decimal(18, 4)
+  may                    Decimal?              @db.Decimal(18, 4)
+  jun                    Decimal?              @db.Decimal(18, 4)
+  jul                    Decimal?              @db.Decimal(18, 4)
+  aug                    Decimal?              @db.Decimal(18, 4)
+  sep                    Decimal?              @db.Decimal(18, 4)
+  oct                    Decimal?              @db.Decimal(18, 4)
+  nov                    Decimal?              @db.Decimal(18, 4)
+  dec                    Decimal?              @map("dec") @db.Decimal(18, 4)
+  fullYear               Decimal?              @map("full_year") @db.Decimal(18, 4)
+  occupancyTransactionId String?               @map("occupancy_transaction_id") @db.Uuid
+  occupancyMasterId      String?               @map("occupancy_master_id") @db.Uuid
+  transaction            OccupancyTransaction? @relation(fields: [occupancyTransactionId], references: [id])
+  master                 OccupancyMaster?      @relation(fields: [occupancyMasterId], references: [id])
+
+  @@unique([occupancyTransactionId, occupancyMasterId], map: "occupancy_transaction_detail_unique")
+  @@map("occupancy_transaction_detail")
+}
+
+model OccupancyReforecast {
+  id                  String   @id @default(uuid()) @db.Uuid
+  propertyId          String   @map("property_id") @db.Uuid
+  year                Int      @map("year")
+  totalUnits          Int      @map("total_units")
+  totalRentableSqFt   Float    @map("total_rentable_sq_ft")
+  startingGpr         Float    @map("starting_gpr")
+  startingLossToLease Float    @map("starting_loss_to_lease")
+  averageMonthlyRent  Float    @default(0) @map("average_monthly_rent")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  property Property                    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  details  OccupancyReforecastDetail[]
+
+  @@unique([propertyId, year])
+  @@map("occupancy_reforecasts")
+}
+
+model OccupancyReforecastDetail {
+  id                                   String  @id @default(uuid()) @db.Uuid
+  reforecastId                         String  @map("reforecast_id") @db.Uuid
+  month                                Int     @map("month")
+  avgPerUnitIncrease                   Float   @default(0) @map("avg_per_unit_increase")
+  beginningOccUnits                    Int?    @map("beginning_occ_units")
+  endingOccUnits                       Int?    @map("ending_occ_units")
+  traffic                              Int     @default(0) @map("traffic")
+  netClosingPercent                    Float   @default(0) @map("net_closing_percent")
+  leaseExpirations                     Int     @default(0) @map("lease_expirations")
+  renewalPercent                       Float   @default(0) @map("renewal_percent")
+  skipsEvictionsOther                  Int     @default(0) @map("skips_evictions_other")
+  avgLolGainMoveIns                    Float   @default(0) @map("avg_lol_gain_move_ins")
+  avgRenewalIncrease                   Float   @default(0) @map("avg_renewal_increase")
+  adjustmentForReno                    Float   @default(0) @map("adjustment_for_reno")
+  trafficPriorYear                     Int?    @map("traffic_prior_year")
+  netClosingPercentPriorYear           Float?  @map("net_closing_percent_prior_year")
+  leaseExpirationsPriorYear            Int?    @map("lease_expirations_prior_year")
+  renewalPercentPriorYear              Float?  @map("renewal_percent_prior_year")
+  skipsEvictionsPriorYear              Int?    @map("skips_evictions_prior_year")
+  newLeasesOfferedConcessionsPercent   Float?  @map("new_leases_offered_concessions_percent")
+  newLeasesMthAvgRentOfferedConcession Float?  @map("new_leases_mth_avg_rent_offered_concession")
+  renewalsOfferedConcessionsPercent    Float?  @map("renewals_offered_concessions_percent")
+  renewalsMthAvgRentOfferedConcession  Float?  @map("renewals_mth_avg_rent_offered_concession")
+  moveIns                              Int     @default(0) @map("move_ins")
+  moveOuts                             Int     @default(0) @map("move_outs")
+  vacancyLossOverride                  Float?  @map("vacancy_loss_override")
+  vacancyLossIsOverridden              Boolean @default(false) @map("vacancy_loss_is_overridden")
+
+  reforecast OccupancyReforecast @relation(fields: [reforecastId], references: [id], onDelete: Cascade)
+
+  @@unique([reforecastId, month])
+  @@map("occupancy_reforecast_details")
+}

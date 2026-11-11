@@ -1,0 +1,18 @@
+{
+  "name": "@budget-integration/property-service",
+  "version": "1.0.0",
+  "description": "Property Domain API & Worker Service (Properties, Units, Unit Types, GL Trees)",
+  "main": "./src/main.ts",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@budget-integration/database": "*",
+    "@budget-integration/domain-property": "*",
+    "@budget-integration/integration-core": "*",
+    "@budget-integration/worker": "*"
+  },
+  "license": "ISC",
+  "type": "module"
+}

@@ -1,0 +1,940 @@
+model Property {
+  id                                  String                                        @id @default(uuid()) @db.Uuid
+  companyId                           String                                        @map("company_id") @db.Uuid
+  organisationId                      String                                        @map("organisation_id") @db.Uuid
+  workflowDefinitionId                String?                                       @db.Uuid
+  code                                String?                                       @map("property_code") @db.VarChar(100)
+  name                                String?                                       @map("property_name") @db.VarChar(255)
+  type                                String?                                       @map("property_type") @db.VarChar(100)
+  ownerName                           String?                                       @map("owner_name") @db.VarChar(255)
+  status                              PropertyStatus                                @default(DRAFT)
+  operatingType                       PropertyOperatingType?                        @map("property_operating_type")
+  budgetYear                          Int?
+  budgetYearType                      PropertyBudgetYearType?                       @map("budget_year_type")
+  fiscalYearStartMonth                Int?                                          @map("fiscal_year_start_month")
+  fiscalYearEndMonth                  Int?                                          @map("fiscal_year_end_month")
+  fiscalYearStartDate                 DateTime?                                     @map("fiscal_year_start_date")
+  fiscalYearEndDate                   DateTime?                                     @map("fiscal_year_end_date")
+  reforecastLockedTillMonth           Int?                                          @map("reforecast_locked_till_month")
+  externalId                          Int?                                          @unique
+  marketingName                       String?
+  yearBuilt                           Int?                                          @map("year_built")
+  website                             String?                                       @db.VarChar(500)
+  shortDescription                    String?                                       @map("short_description")
+  longDescription                     String?                                       @map("long_description")
+  isDisabled                          Boolean                                       @default(false) @map("is_disabled")
+  isFeatured                          Boolean                                       @default(false) @map("is_featured")
+  isWorkflowDeployed                  Boolean                                       @default(false)
+  createdSource                       String?                                       @map("created_source") @db.VarChar(100)
+  updatedSource                       String?                                       @map("updated_source") @db.VarChar(100)
+  lastSyncedAt                        DateTime?                                     @map("last_synced_at")
+  isManuallyOverridden                Boolean                                       @default(false) @map("is_manually_overridden")
+  createdAt                           DateTime                                      @default(now()) @map("created_at")
+  updatedAt                           DateTime                                      @updatedAt @map("updated_at")
+  createdBy                           String?                                       @map("created_by") @db.Uuid
+  updatedBy                           String?                                       @map("updated_by") @db.Uuid
+  propertyManagerId                   String?                                       @map("property_manager_id") @db.Uuid
+  currentWorkflowStepId               String?                                       @map("current_workflow_step_id") @db.Uuid
+  assignedToUserId                    String?                                       @map("assigned_to_user_id") @db.Uuid
+  externalSnapshot                    PropertyExternalSnapshot?
+  leaseTerms                          PropertyLeaseTerm[]
+  address                             PropertyMainAddress?
+  auditLogs                           AuditLog[]
+  businessRoleAssignments             BusinessRoleAssignment[]
+  company                             Company                                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation                        Organisation                                  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  propertyManager                     User?                                         @relation("PropertyManager", fields: [propertyManagerId], references: [id])
+  workflowDefinition                  WorkflowDefinition?                           @relation(fields: [workflowDefinitionId], references: [id])
+  addresses                           PropertyAddress[]
+  budgets                             PropertyBudget[]
+  officeHours                         PropertyOfficeHour[]
+  postMonths                          PropertyPostMonth?
+  spaceOptions                        PropertySpaceOption[]
+  unitTypes                           PropertyUnitType[]
+  units                               PropertyUnit[]
+  workflowAssignments                 PropertyWorkflowAssignment[]
+  workflowComments                    PropertyWorkflowComment[]
+  systemRoleAssignments               SystemRoleAssignment[]
+  occupancyReforecasts                OccupancyReforecast[]
+  isWorkflowCompleted                 Boolean                                       @default(false)
+  currentWorkflowStep                 WorkflowStep?                                 @relation("PropertyCurrentWorkflowStep", fields: [currentWorkflowStepId], references: [id])
+  assignedToUser                      User?                                         @relation("PropertyAssignedToUser", fields: [assignedToUserId], references: [id])
+  reassignments                       PropertyReassignment[]                        @relation("PropertyReassignments")
+  marketRentUnitRates                 MarketRentUnitRate[]
+  marketRentChangeSets                MarketRentChangeSet[]
+  marketRentUnitChanges               MarketRentUnitChange[]
+  leaseUpUnits                        LeaseUpUnit[]
+  rehabUnits                          RehabUnit[]
+  nonIncomeUnits                      NonIncomeUnit[]
+  propertyGlTrees                     PropertyGlTree[]
+  propertyBudgetActuals               PropertyBudgetActual[]
+  propertyGlAccounts                  PropertyGlAccount[]
+  coaPropertyExclusions               CoaPropertyExclusion[]
+  coaTemplateId                       String?                                       @map("coa_template_id") @db.Uuid
+  coaTemplate                         CoaTemplate?                                  @relation(fields: [coaTemplateId], references: [id], onDelete: SetNull)
+  globalAssumptionExclusions          GlobalAssumptionExcludedProperty[]
+  budgetAssumptionApplyStates         BudgetAssumptionApplyState[]
+  budgetInitRunStates                 BudgetInitRunState[]
+  payrollBenefitAssumptionExclusions  PayrollBenefitAssumptionExcludedProperty[]
+  payrollGlobalAssumptionExclusions   PayrollGlobalAssumptionExcludedProperty[]
+  payrollPositionAssumptionExclusions PayrollPositionAssumptionExcludedProperty[]
+  overtimeExclusions                  OvertimeExcludedProperty[]
+  proformaScenarios                   ProformaScenario[]
+  proformaDrivers                     ProformaDriver[]
+  proformaGlobalAssumptions           ProformaGlobalAssumption[]
+  proformaCoaGaExcludedProperties     ProformaCoaGlobalAssumptionExcludedProperty[]
+  assignedSystemRoles                 SystemRoleProperty[]
+  statusHistory                       PropertyStatusHistory[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([name])
+  @@index([status])
+  @@index([companyId, organisationId, status])
+  @@index([assignedToUserId])
+  @@index([propertyManagerId])
+  @@index([currentWorkflowStepId])
+  @@map("properties")
+}
+
+model PropertyMainAddress {
+  id         String   @id @default(uuid()) @map("id") @db.Uuid
+  propertyId String   @unique @map("property_id") @db.Uuid
+  address    String   @map("address") @db.VarChar(500)
+  city       String   @map("city")
+  state      String   @map("state")
+  postalCode String   @map("postal_code")
+  country    String   @map("country")
+  email      String?  @map("email") @db.VarChar(255)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([id])
+  @@map("property_main_addresses")
+}
+
+model PropertyAddress {
+  id                String   @id @default(uuid()) @db.Uuid
+  companyId         String   @map("company_id") @db.Uuid
+  organisationId    String   @map("organisation_id") @db.Uuid
+  propertyId        String   @map("property_id") @db.Uuid
+  sourceAddressType String?  @map("source_address_type") @db.VarChar(100)
+  addressType       String?  @map("address_type") @db.VarChar(100)
+  addressLine1      String?  @map("address_line1") @db.VarChar(255)
+  addressLine2      String?  @map("address_line2") @db.VarChar(255)
+  city              String?  @db.VarChar(100)
+  state             String?  @db.VarChar(100)
+  stateCode         String?  @map("state_code") @db.VarChar(50)
+  province          String?  @db.VarChar(100)
+  postalCode        String?  @map("postal_code") @db.VarChar(30)
+  country           String?  @db.VarChar(100)
+  email             String?  @db.VarChar(255)
+  isPrimary         Boolean  @default(false) @map("is_primary")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  property          Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@map("property_addresses")
+}
+
+model PropertyPostMonth {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  organisationId String   @map("organisation_id") @db.Uuid
+  propertyId     String   @unique @map("property_id") @db.Uuid
+  arPostMonth    String?  @map("ar_post_month") @db.VarChar(20)
+  apPostMonth    String?  @map("ap_post_month") @db.VarChar(20)
+  glPostMonth    String?  @map("gl_post_month") @db.VarChar(20)
+  arPostYear     Int?     @map("ar_post_year")
+  arPostMonthNo  Int?     @map("ar_post_month_no")
+  apPostYear     Int?     @map("ap_post_year")
+  apPostMonthNo  Int?     @map("ap_post_month_no")
+  glPostYear     Int?     @map("gl_post_year")
+  glPostMonthNo  Int?     @map("gl_post_month_no")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  property       Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@map("property_post_months")
+}
+
+model PropertyOfficeHour {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  organisationId   String   @map("organisation_id") @db.Uuid
+  propertyId       String   @map("property_id") @db.Uuid
+  day              String   @db.VarChar(50)
+  availability     String?
+  availabilityType String?  @map("availability_type") @db.VarChar(100)
+  openTime         String?  @map("open_time") @db.VarChar(50)
+  closeTime        String?  @map("close_time") @db.VarChar(50)
+  lunchStartTime   String?  @map("lunch_start_time") @db.VarChar(50)
+  lunchEndTime     String?  @map("lunch_end_time") @db.VarChar(50)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  property         Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@map("property_office_hours")
+}
+
+model SpaceOption {
+  id             String                @id @default(uuid()) @db.Uuid
+  companyId      String                @map("company_id") @db.Uuid
+  organisationId String                @map("organisation_id") @db.Uuid
+  optionCode     String?               @map("option_code") @db.VarChar(100)
+  name           String?               @db.VarChar(255)
+  createdSource  String?               @map("created_source") @db.VarChar(100)
+  updatedSource  String?               @map("updated_source") @db.VarChar(100)
+  lastSyncedAt   DateTime?             @map("last_synced_at")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+  properties     PropertySpaceOption[]
+
+  @@unique([companyId, organisationId, optionCode])
+  @@index([companyId])
+  @@index([organisationId])
+  @@map("space_options")
+}
+
+model PropertySpaceOption {
+  id             String      @id @default(uuid()) @db.Uuid
+  companyId      String      @map("company_id") @db.Uuid
+  organisationId String      @map("organisation_id") @db.Uuid
+  propertyId     String      @map("property_id") @db.Uuid
+  spaceOptionId  String      @map("space_option_id") @db.Uuid
+  externalId     String
+  name           String
+  createdAt      DateTime    @default(now()) @map("created_at")
+  property       Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  spaceOption    SpaceOption @relation(fields: [spaceOptionId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, spaceOptionId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@index([spaceOptionId])
+  @@map("property_space_options")
+}
+
+model PropertyLeaseTerm {
+  id                String                @id @default(uuid()) @map("id") @db.Uuid
+  propertyId        String                @map("property_id") @db.Uuid
+  externalId        Int                   @map("external_id") @db.Integer
+  name              String                @map("name") @db.VarChar(255)
+  termMonths        Int?                  @map("term_months")
+  isProspect        Boolean               @map("is_prospect")
+  isRenewal         Boolean               @map("is_renewal")
+  isActive          Boolean               @map("is_active")
+  property          Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  leaseWindows      PropertyLeaseWindow[]
+  leaseStartWindows LeaseStartWindow[]
+
+  @@map("property_lease_terms")
+}
+
+model PropertyLeaseWindow {
+  id          String            @id @default(uuid()) @map("id") @db.Uuid
+  leaseTermId String            @map("lease_term_id") @db.Uuid
+  externalId  Int               @map("external_id")
+  windowStart DateTime          @map("window_start")
+  windowEnd   DateTime          @map("window_end")
+  leaseTerm   PropertyLeaseTerm @relation(fields: [leaseTermId], references: [id], onDelete: Cascade)
+
+  @@index([leaseTermId])
+  @@map("property_lease_windows")
+}
+
+model PropertyExternalSnapshot {
+  id                      String                      @id @default(uuid()) @map("id") @db.Uuid
+  propertyId              String                      @unique @map("property_id") @db.Uuid
+  provider                IntegrationProvider         @default(ENTRATA) @map("provider")
+  externalPropertyId      BigInt?                     @unique @map("external_property_id")
+  propertyName            String?                     @map("property_name") @db.VarChar(255)
+  currencyCode            String?                     @map("currency_code") @db.VarChar(10)
+  buildingCount           Int?                        @map("building_count")
+  unitCount               Int?                        @map("unit_count")
+  propertyAvailabilityUrl String?                     @map("property_availability_url") @db.VarChar(1000)
+  lastSyncedAt            DateTime?                   @map("last_synced_at")
+  rawPayload              Json?                       @map("raw_payload") @db.Json
+  createdAt               DateTime                    @default(now()) @map("created_at")
+  updatedAt               DateTime                    @updatedAt @map("updated_at")
+  pets                    PropertyExternalPetPolicy[]
+  property                Property                    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  units                   PropertyUnit[]
+
+  @@unique([propertyId, externalPropertyId])
+  @@index([provider])
+  @@map("property_external_snapshots")
+}
+
+model PropertyExternalPetPolicy {
+  id          String                   @id @default(uuid()) @map("id") @db.Uuid
+  snapshotId  String                   @map("snapshot_id") @db.Uuid
+  type        String                   @map("type") @db.VarChar(100)
+  rent        Decimal?                 @map("rent") @db.Decimal(12, 2)
+  fee         Decimal?                 @map("fee") @db.Decimal(12, 2)
+  count       Int?                     @map("count")
+  petCare     Boolean?                 @map("pet_care")
+  description String?                  @map("description") @db.VarChar(255)
+  createdAt   DateTime                 @default(now()) @map("created_at")
+  updatedAt   DateTime                 @updatedAt @map("updated_at")
+  snapshot    PropertyExternalSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+  @@map("property_external_pet_policies")
+}
+
+model PropertyUnit {
+  id                   String                    @id @default(uuid()) @db.Uuid
+  companyId            String                    @map("company_id") @db.Uuid
+  organisationId       String                    @map("organisation_id") @db.Uuid
+  propertyId           String                    @map("property_id") @db.Uuid
+  snapshotId           String?                   @db.Uuid
+  externalUnitId       BigInt?
+  remotePrimaryKey     String?                   @map("remote_primary_key") @db.VarChar(300)
+  unitNumber           String?                   @map("unit_number") @db.VarChar(100)
+  sourceUnitId         String?                   @map("source_unit_id") @db.VarChar(150)
+  unitTypeId           String?                   @map("unit_type_id") @db.VarChar(150)
+  unitTypeName         String?                   @map("unit_type_name") @db.VarChar(150)
+  floorPlanId          String?                   @map("floorplan_id") @db.VarChar(150)
+  floorplanName        String?                   @map("floorplan_name") @db.VarChar(150)
+  buildingId           String?                   @map("building_id") @db.VarChar(150)
+  buildingName         String?                   @map("building_name") @db.VarChar(150)
+  floorId              String?                   @map("floor_id") @db.VarChar(150)
+  floorNumber          String?                   @map("floor_number") @db.VarChar(50)
+  bedrooms             Int?                      @map("bedrooms")
+  bathrooms            Int?                      @map("bathrooms")
+  squareFeet           Int?                      @map("square_feet")
+  maxOccupants         Int?                      @map("max_occupants")
+  maxPets              Int?                      @map("max_pets")
+  isCorporateRented    Boolean?                  @map("is_corporate_rented")
+  isFurnished          Boolean?                  @map("is_furnished")
+  createdSource        String?                   @map("created_source") @db.VarChar(100)
+  updatedSource        String?                   @map("updated_source") @db.VarChar(100)
+  lastSyncedAt         DateTime?                 @map("last_synced_at")
+  isManuallyOverridden Boolean                   @default(false) @map("is_manually_overridden")
+  city                 String?
+  state                String?
+  postalCode           String?
+  country              String?
+  createdAt            DateTime                  @default(now()) @map("created_at")
+  updatedAt            DateTime                  @updatedAt @map("updated_at")
+  address              PropertyUnitAddress?
+  spaces               PropertyUnitSpace[]
+  company              Company                   @relation(fields: [companyId], references: [id])
+  organisation         Organisation              @relation(fields: [organisationId], references: [id])
+  property             Property                  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  snapshot             PropertyExternalSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+  nonIncomeUnits       NonIncomeUnit[]
+
+  @@unique([companyId, organisationId, propertyId, buildingId, unitNumber])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@index([sourceUnitId])
+  @@index([remotePrimaryKey])
+  @@index([unitNumber])
+  @@index([snapshotId])
+  @@index([externalUnitId])
+  @@map("property_units")
+}
+
+model PropertyUnitAddress {
+  id             String       @id @default(uuid()) @db.Uuid
+  companyId      String       @map("company_id") @db.Uuid
+  organisationId String       @map("organisation_id") @db.Uuid
+  propertyUnitId String       @unique @map("property_unit_id") @db.Uuid
+  addressLine1   String?      @map("address_line1") @db.VarChar(255)
+  addressLine2   String?      @map("address_line2") @db.VarChar(255)
+  city           String?      @db.VarChar(100)
+  state          String?      @db.VarChar(100)
+  postalCode     String?      @map("postal_code") @db.VarChar(30)
+  country        String?      @db.VarChar(100)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  propertyUnit   PropertyUnit @relation(fields: [propertyUnitId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyUnitId])
+  @@map("property_unit_addresses")
+}
+
+model PropertyUnitSpace {
+  id                  String                      @id @default(uuid()) @db.Uuid
+  companyId           String                      @map("company_id") @db.Uuid
+  organisationId      String                      @map("organisation_id") @db.Uuid
+  propertyUnitId      String                      @map("property_unit_id") @db.Uuid
+  sourceUnitSpaceId   String?                     @map("source_unit_space_id") @db.VarChar(150)
+  externalUnitSpaceId BigInt?
+  unitNumber          String?                     @map("unit_number") @db.VarChar(100)
+  marketingUnitNumber String?                     @map("marketing_unit_number") @db.VarChar(100)
+  webVisible          Boolean?                    @map("web_visible")
+  isAffordable        Boolean?                    @map("is_affordable")
+  hasPricing          Boolean?                    @map("has_pricing")
+  excludedReason      String?
+  exclusionReason     String?                     @map("exclusion_reason") @db.VarChar(255)
+  makeReadyDate       DateTime?                   @db.Date
+  spaceConfiguration  String?
+  availabilityStatus  String?                     @map("availability_status") @db.VarChar(150)
+  availableDate       DateTime?                   @map("available_date")
+  unitAvailabilityUrl String?                     @map("unit_availability_url") @db.VarChar(1000)
+  minRent             Decimal?                    @map("min_rent") @db.Decimal(12, 2)
+  maxRent             Decimal?                    @map("max_rent") @db.Decimal(12, 2)
+  minDeposit          Decimal?                    @map("min_deposit") @db.Decimal(12, 2)
+  maxDeposit          Decimal?                    @map("max_deposit") @db.Decimal(12, 2)
+  marketRent          Decimal?                    @map("market_rent") @db.Decimal(12, 2)
+  occupancyTypeId     String?                     @map("occupancy_type_id") @db.VarChar(150)
+  occupancyTypeName   String?                     @map("occupancy_type_name") @db.VarChar(150)
+  createdAt           DateTime                    @default(now()) @map("created_at")
+  updatedAt           DateTime                    @updatedAt @map("updated_at")
+  amenities           PropertyUnitSpaceAmenity[]
+  termRents           PropertyUnitSpaceTermRent[]
+  propertyUnit        PropertyUnit                @relation(fields: [propertyUnitId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyUnitId, sourceUnitSpaceId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyUnitId])
+  @@index([sourceUnitSpaceId])
+  @@index([availabilityStatus])
+  @@index([externalUnitSpaceId])
+  @@map("property_unit_spaces")
+}
+
+model PropertyUnitType {
+  id                   String                      @id @default(uuid()) @db.Uuid
+  companyId            String                      @map("company_id") @db.Uuid
+  organisationId       String                      @map("organisation_id") @db.Uuid
+  propertyId           String                      @map("property_id") @db.Uuid
+  sourceUnitTypeId     String?                     @map("source_unit_type_id") @db.VarChar(150)
+  unitTypeName         String?                     @map("unit_type_name") @db.VarChar(150)
+  unitCount            Int?                        @map("unit_count")
+  bedrooms             Int?                        @map("bedrooms")
+  bathrooms            Decimal?                    @map("bathrooms") @db.Decimal(5, 2)
+  minSquareFeet        Int?                        @map("min_square_feet")
+  maxSquareFeet        Int?                        @map("max_square_feet")
+  minMarketRent        Decimal?                    @map("min_market_rent") @db.Decimal(12, 2)
+  maxMarketRent        Decimal?                    @map("max_market_rent") @db.Decimal(12, 2)
+  createdSource        String?                     @map("created_source") @db.VarChar(100)
+  updatedSource        String?                     @map("updated_source") @db.VarChar(100)
+  lastSyncedAt         DateTime?                   @map("last_synced_at")
+  isManuallyOverridden Boolean                     @default(false) @map("is_manually_overridden")
+  createdAt            DateTime                    @default(now()) @map("created_at")
+  updatedAt            DateTime                    @updatedAt @map("updated_at")
+  floorplans           PropertyUnitTypeFloorplan[]
+  rentTerms            PropertyUnitTypeRentTerm[]
+  leaseUpUnits         LeaseUpUnit[]
+  rehabUnits           RehabUnit[]
+  company              Company                     @relation(fields: [companyId], references: [id])
+  organisation         Organisation                @relation(fields: [organisationId], references: [id])
+  property             Property                    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, organisationId, propertyId, sourceUnitTypeId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@index([sourceUnitTypeId])
+  @@index([unitTypeName])
+  @@map("property_unit_types")
+}
+
+model PropertyUnitTypeRentTerm {
+  id                 String           @id @default(uuid()) @db.Uuid
+  companyId          String           @map("company_id") @db.Uuid
+  organisationId     String           @map("organisation_id") @db.Uuid
+  propertyUnitTypeId String           @map("property_unit_type_id") @db.Uuid
+  leaseTerm          String?          @map("lease_term") @db.VarChar(100)
+  leaseTermId        String?          @map("lease_term_id") @db.VarChar(150)
+  leaseTermName      String?          @map("lease_term_name") @db.VarChar(150)
+  rent               Decimal?         @db.Decimal(12, 2)
+  startDate          DateTime?        @map("start_date")
+  endDate            DateTime?        @map("end_date")
+  spaceOptionId      String?          @map("space_option_id") @db.VarChar(150)
+  spaceOption        String?          @map("space_option") @db.VarChar(150)
+  isSoldOut          Boolean?         @map("is_sold_out")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  propertyUnitType   PropertyUnitType @relation(fields: [propertyUnitTypeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyUnitTypeId])
+  @@index([leaseTermId])
+  @@index([spaceOptionId])
+  @@map("property_unit_type_rent_terms")
+}
+
+model PropertyUnitSpaceTermRent {
+  id            String            @id @default(uuid()) @map("id") @db.Uuid
+  unitSpaceId   String            @map("unit_space_id") @db.Uuid
+  leaseTermId   String?           @map("lease_term_id")
+  leaseTerm     String?           @map("lease_term")
+  leaseTermName String?           @map("lease_term_name")
+  isWebVisible  Boolean?          @map("is_web_visible")
+  isBestPrice   Boolean?          @map("is_best_price")
+  spaceOptionId String?           @map("space_option_id")
+  spaceOption   String?           @map("space_option")
+  startDate     DateTime?         @map("start_date") @db.Date
+  endDate       DateTime?         @map("end_date") @db.Date
+  rent          Decimal?          @map("rent")
+  baseRent      Decimal?          @map("base_rent")
+  rateFrequency String?           @map("rate_frequency")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  unitSpace     PropertyUnitSpace @relation(fields: [unitSpaceId], references: [id], onDelete: Cascade)
+
+  @@index([unitSpaceId])
+  @@map("property_unit_space_term_rents")
+}
+
+model PropertyUnitTypeFloorplan {
+  id                 String           @id @default(uuid()) @db.Uuid
+  companyId          String           @map("company_id") @db.Uuid
+  organisationId     String           @map("organisation_id") @db.Uuid
+  propertyUnitTypeId String           @map("property_unit_type_id") @db.Uuid
+  sourceFloorPlanId  String?          @map("source_floorplan_id") @db.VarChar(150)
+  floorPlanName      String?          @map("floorplan_name") @db.VarChar(150)
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  propertyUnitType   PropertyUnitType @relation(fields: [propertyUnitTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyUnitTypeId, sourceFloorPlanId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyUnitTypeId])
+  @@index([sourceFloorPlanId])
+  @@map("property_unit_type_floorplans")
+}
+
+model PropertyUnitSpaceAmenity {
+  id                String            @id @default(uuid()) @map("id") @db.Uuid
+  unitSpaceId       String            @map("unit_space_id") @db.Uuid
+  externalAmenityId BigInt?           @map("external_amenity_id")
+  name              String            @map("name")
+  type              String?           @map("type")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt
+  unitSpace         PropertyUnitSpace @relation(fields: [unitSpaceId], references: [id], onDelete: Cascade)
+
+  @@index([unitSpaceId])
+  @@index([externalAmenityId])
+  @@map("property_unit_space_amenities")
+}
+
+model PropertyWorkflowAssignment {
+  id             String       @id @default(uuid()) @db.Uuid
+  propertyId     String       @db.Uuid
+  workflowStepId String       @db.Uuid
+  userId         String       @db.Uuid
+  assignedAt     DateTime     @default(now())
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  property       Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workflowStep   WorkflowStep @relation(fields: [workflowStepId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, workflowStepId, userId])
+  @@index([userId])
+  @@map("property_workflow_assignment")
+}
+
+model PropertyWorkflowComment {
+  id                   String                        @id @default(uuid()) @db.Uuid
+  propertyId           String                        @db.Uuid
+  workflowStepId       String                        @db.Uuid
+  userId               String                        @db.Uuid
+  action               PropertyWorkflowCommentAction
+  targetWorkflowStepId String?                       @db.Uuid
+  comment              String                        @db.Text
+  createdAt            DateTime                      @default(now())
+  property             Property                      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  user                 User                          @relation("PropertyWorkflowCommentActor", fields: [userId], references: [id], onDelete: Cascade)
+  workflowStep         WorkflowStep                  @relation("PropertyWorkflowCommentStep", fields: [workflowStepId], references: [id], onDelete: Cascade)
+  targetWorkflowStep   WorkflowStep?                 @relation("PropertyWorkflowCommentTargetStep", fields: [targetWorkflowStepId], references: [id], onDelete: SetNull)
+
+  @@index([propertyId, createdAt])
+  @@index([userId])
+  @@index([workflowStepId])
+  @@map("property_workflow_comment")
+}
+
+model PropertyClosingStatus {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+
+  propertyId   String? @map("property_id") @db.Uuid
+  propertyName String  @map("property_name") @db.VarChar(250)
+
+  currentAr       DateTime? @map("current_ar")
+  arLockedThrough DateTime? @map("ar_locked_through")
+  arAutoRollDay   String?   @map("ar_auto_roll_day") @db.VarChar(100)
+
+  currentAp       DateTime? @map("current_ap")
+  apLockedThrough DateTime? @map("ap_locked_through")
+  apAutoRollDay   String?   @map("ap_auto_roll_day") @db.VarChar(100)
+
+  currentGl       DateTime? @map("current_gl")
+  glLockedThrough DateTime? @map("gl_locked_through")
+  glAutoRollDay   String?   @map("gl_auto_roll_day") @db.VarChar(100)
+
+  previousGlLockedThrough DateTime? @map("previous_gl_locked_through")
+  isGlLockedChanged       Boolean   @default(false) @map("is_gl_locked_changed")
+  glLockedChangedAt       DateTime? @map("gl_locked_changed_at")
+
+  sourceRecordId String?   @map("source_record_id") @db.VarChar(500)
+  sourceHash     String?   @map("source_hash") @db.VarChar(200)
+  lastSyncedAt   DateTime? @map("last_synced_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company      Company      @relation(fields: [companyId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([companyId, organisationId, propertyName])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@index([propertyName])
+  @@index([isGlLockedChanged])
+  @@index([sourceHash])
+  @@map("property_closing_statuses")
+}
+
+model PropertyBudgetActual {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+
+  propertyId        String  @map("property_id") @db.Uuid
+  budgetId          String  @map("budget_id") @db.Uuid
+  glTreeId          String? @map("gl_tree_id") @db.Uuid
+  glAccountId       String? @map("gl_account_id") @db.Uuid
+  budgetGlAccountId String  @map("budget_gl_account_id") @db.Uuid
+
+  fiscalYear       Int      @map("fiscal_year")
+  postMonth        DateTime @map("post_month") @db.Date
+  accountingMethod String?  @map("accounting_method") @db.VarChar(50)
+
+  mtdActual          Decimal? @map("mtd_actual") @db.Decimal(18, 2)
+  mtdBudget          Decimal? @map("mtd_budget") @db.Decimal(18, 2)
+  mtdVariance        Decimal? @map("mtd_variance") @db.Decimal(18, 2)
+  mtdVariancePercent Decimal? @map("mtd_variance_percent") @db.Decimal(18, 6)
+
+  ytdActual          Decimal? @map("ytd_actual") @db.Decimal(18, 2)
+  ytdBudget          Decimal? @map("ytd_budget") @db.Decimal(18, 2)
+  ytdVariance        Decimal? @map("ytd_variance") @db.Decimal(18, 2)
+  ytdVariancePercent Decimal? @map("ytd_variance_percent") @db.Decimal(18, 6)
+
+  annualBudget Decimal? @map("annual_budget") @db.Decimal(18, 2)
+
+  sourcePropertyId  String? @map("source_property_id") @db.VarChar(100)
+  sourceBudgetId    String? @map("source_budget_id") @db.VarChar(100)
+  sourceGlTreeId    String? @map("source_gl_tree_id") @db.VarChar(100)
+  sourceGlAccountId String? @map("source_gl_account_id") @db.VarChar(100)
+
+  sourceHash   String?   @map("source_hash") @db.VarChar(200)
+  lastSyncedAt DateTime? @map("last_synced_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company             Company                 @relation(fields: [companyId], references: [id])
+  organisation        Organisation            @relation(fields: [organisationId], references: [id])
+  property            Property                @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  budget              PropertyBudget          @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  glTree              GlTree?                 @relation(fields: [glTreeId], references: [id], onDelete: Cascade)
+  glAccount           GlAccount?              @relation(fields: [glAccountId], references: [id], onDelete: Cascade)
+  propertyGlAccount   PropertyGlAccount?      @relation(fields: [propertyGlAccountId], references: [id])
+  propertyGlAccountId String?                 @db.Uuid
+  budgetGlAccount     PropertyBudgetGlAccount @relation(fields: [budgetGlAccountId], references: [id], onDelete: Cascade)
+
+  // @@unique([companyId, organizationId, propertyId, budgetId, budgetGlAccountId, postMonth, accountingMethod])
+  @@unique([companyId, organisationId, propertyId, budgetId, budgetGlAccountId, postMonth, accountingMethod])
+  @@index([propertyId])
+  @@index([budgetId])
+  @@index([glTreeId])
+  @@index([glAccountId])
+  @@index([postMonth])
+  @@index([fiscalYear])
+  @@map("property_budget_actuals")
+}
+
+model GlTree {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+
+  sourceGlTreeId String @map("source_gl_tree_id") @db.VarChar(100)
+
+  treeName       String?  @map("tree_name") @db.VarChar(255)
+  isMasterGlTree Boolean? @map("is_master_gl_tree")
+
+  sourceHash   String?   @map("source_hash") @db.VarChar(128)
+  lastSyncedAt DateTime? @map("last_synced_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  branches GlTreeBranch[]
+  accounts GlAccount[]
+
+  company      Company      @relation(fields: [companyId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  propertyGlAccounts PropertyGlAccount[]
+  propertyGlTrees    PropertyGlTree[]
+  budgetActuals      PropertyBudgetActual[]
+
+  @@unique([companyId, organisationId, sourceGlTreeId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([sourceGlTreeId])
+  @@map("gl_trees")
+}
+
+model GlTreeBranch {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+
+  glTreeId String @map("gl_tree_id") @db.Uuid
+
+  sourceBranchId String @map("source_branch_id") @db.VarChar(100)
+
+  groupType      String? @map("group_type") @db.VarChar(150)
+  groupName      String? @map("group_name") @db.VarChar(255)
+  summaryRowName String? @map("summary_row_name") @db.VarChar(255)
+  description    String? @db.Text
+
+  isEnabled      Boolean? @map("is_enabled")
+  showGroupName  Boolean? @map("show_group_name")
+  showSummaryRow Boolean? @map("show_summary_row")
+
+  sourceHash   String?   @map("source_hash") @db.VarChar(128)
+  lastSyncedAt DateTime? @map("last_synced_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  glTree GlTree @relation(fields: [glTreeId], references: [id], onDelete: Cascade)
+
+  company      Company      @relation(fields: [companyId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  accounts GlAccount[]
+
+  @@unique([companyId, organisationId, glTreeId, sourceBranchId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([glTreeId])
+  @@index([sourceBranchId])
+  @@map("gl_tree_branches")
+}
+
+model GlAccount {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+
+  glTreeId       String  @map("gl_tree_id") @db.Uuid
+  glTreeBranchId String? @map("gl_tree_branch_id") @db.Uuid
+
+  sourceGlAccountId String  @map("source_gl_account_id") @db.VarChar(100)
+  sourceBranchId    String? @map("source_branch_id") @db.VarChar(100)
+
+  accountNumber String @map("account_number") @db.VarChar(100)
+  accountName   String @map("account_name") @db.VarChar(500)
+
+  glGroupType   String? @map("gl_group_type") @db.VarChar(150)
+  groupLocation String? @map("group_location") @db.VarChar(255)
+  description   String? @db.Text
+
+  status   String?  @db.VarChar(100)
+  isSystem Boolean? @map("is_system")
+
+  sourceHash   String?   @map("source_hash") @db.VarChar(128)
+  lastSyncedAt DateTime? @map("last_synced_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  glTree GlTree @relation(fields: [glTreeId], references: [id], onDelete: Cascade)
+
+  glTreeBranch GlTreeBranch? @relation(fields: [glTreeBranchId], references: [id])
+
+  company      Company      @relation(fields: [companyId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  budgetActuals      PropertyBudgetActual[]
+  propertyGlAccounts PropertyGlAccount[]
+
+  // @@unique([companyId, organisationId, sourceGlAccountId])
+  @@unique([companyId, organisationId, glTreeId, accountNumber])
+  @@index([companyId, organisationId, sourceGlAccountId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([glTreeId])
+  @@index([glTreeBranchId])
+  @@index([sourceGlAccountId])
+  @@index([accountNumber])
+  @@map("gl_accounts")
+}
+
+model PropertyGlAccount {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  companyId             String                 @map("company_id") @db.Uuid
+  organisationId        String                 @map("organisation_id") @db.Uuid
+  propertyId            String                 @map("property_id") @db.Uuid
+  glTreeId              String                 @map("gl_tree_id") @db.Uuid
+  glAccountId           String                 @map("gl_account_id") @db.Uuid
+  sourcePropertyId      String?                @map("source_property_id") @db.VarChar(150)
+  sourceGlAccountId     String?                @map("source_gl_account_id") @db.VarChar(150)
+  isActive              Boolean                @default(true) @map("is_active")
+  lastSyncedAt          DateTime?              @map("last_synced_at")
+  company               Company                @relation(fields: [companyId], references: [id])
+  organisation          Organisation           @relation(fields: [organisationId], references: [id])
+  property              Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  glTree                GlTree                 @relation(fields: [glTreeId], references: [id], onDelete: Cascade)
+  glAccount             GlAccount              @relation(fields: [glAccountId], references: [id], onDelete: Cascade)
+  propertyBudgetActuals PropertyBudgetActual[]
+
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+  stagingProperty   StagingProperty? @relation(fields: [stagingPropertyId], references: [id])
+  stagingPropertyId String?          @db.Uuid
+
+  @@unique([companyId, organisationId, propertyId, glAccountId])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@index([glTreeId])
+  @@index([glAccountId])
+  @@index([sourcePropertyId])
+  @@index([sourceGlAccountId])
+  @@map("property_gl_accounts")
+}
+
+model PropertyGlTree {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+
+  propertyId String @map("property_id") @db.Uuid
+  glTreeId   String @map("gl_tree_id") @db.Uuid
+
+  sourcePropertyId String? @map("source_property_id") @db.VarChar(100)
+  sourceGlTreeId   String? @map("source_gl_tree_id") @db.VarChar(100)
+
+  isPrimary Boolean @default(false) @map("is_primary")
+  isActive  Boolean @default(true) @map("is_active")
+
+  lastSyncedAt DateTime? @map("last_synced_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  company      Company      @relation(fields: [companyId], references: [id])
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  property     Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  glTree       GlTree       @relation(fields: [glTreeId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, organisationId, propertyId, glTreeId])
+  @@index([companyId, organisationId, propertyId, isActive])
+  @@index([companyId])
+  @@index([organisationId])
+  @@index([propertyId])
+  @@index([glTreeId])
+  @@index([sourcePropertyId])
+  @@index([sourceGlTreeId])
+  @@map("property_gl_trees")
+}
+
+model PropertyReassignment {
+  id String @id @default(uuid()) @db.Uuid
+
+  propertyId     String @map("property_id") @db.Uuid
+  assignedUserId String @map("assigned_user_id") @db.Uuid
+  requestedById  String @map("requested_by_id") @db.Uuid
+
+  notes          String?   @db.Text
+  requestedDate  DateTime  @default(now()) @map("requested_date") @db.Timestamp(3)
+  reassignedDate DateTime? @map("reassigned_date") @db.Timestamp(3)
+
+  property     Property @relation("PropertyReassignments", fields: [propertyId], references: [id], onDelete: Cascade)
+  assignedUser User     @relation("UserAssignedPropertyReassignments", fields: [assignedUserId], references: [id], onDelete: Restrict)
+  requestedBy  User     @relation("UserRequestedPropertyReassignments", fields: [requestedById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@index([propertyId])
+  @@index([assignedUserId])
+  @@index([requestedById])
+  @@index([requestedDate])
+  @@map("property_reassignments")
+}
+
+model PropertyYearConfiguration {
+  id String @id @default(uuid()) @db.Uuid
+
+  companyId      String @map("company_id") @db.Uuid
+  organisationId String @map("organisation_id") @db.Uuid
+
+  fiscalYear Int @map("fiscal_year")
+
+  propertyId   String  @map("property_id") @db.Uuid
+  propertyCode String  @map("property_code") @db.VarChar(100)
+  propertyName String? @map("property_name") @db.VarChar(250)
+
+  startDate DateTime? @map("start_date") @db.Date
+  endDate   DateTime? @map("end_date") @db.Date
+
+  isActive Boolean @default(true) @map("is_active")
+  isDemo   Boolean @default(false) @map("is_demo")
+
+  demoSourcePropertyId   String? @map("demo_source_property_id") @db.Uuid
+  demoSourcePropertyCode String? @map("demo_source_property_code") @db.VarChar(100)
+  demoSourcePropertyName String? @map("demo_source_property_name") @db.VarChar(250)
+
+  createdBy String? @map("created_by") @db.Uuid
+  updatedBy String? @map("updated_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(3)
+
+  @@unique([companyId, organisationId, fiscalYear, propertyId], map: "uq_property_year_configuration")
+  @@index([companyId, organisationId, fiscalYear], map: "idx_property_year_configuration_year")
+  @@index([companyId, organisationId, fiscalYear, isActive], map: "idx_property_year_configuration_active")
+  @@index([companyId, organisationId, fiscalYear, isDemo], map: "idx_property_year_configuration_demo")
+  @@index([companyId, organisationId, fiscalYear, propertyCode], map: "idx_property_year_configuration_property_code")
+  @@index([demoSourcePropertyId], map: "idx_property_year_configuration_demo_source")
+  @@map("property_year_configuration")
+}
+
+model PropertyStatusHistory {
+  id         String   @id @default(uuid()) @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  status     String   @db.VarChar(50)
+  changedAt  DateTime @default(now()) @map("changed_at") @db.Timestamp(3)
+  changedBy  String?  @map("changed_by") @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@map("property_status_history")
+}

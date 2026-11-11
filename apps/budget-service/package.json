@@ -1,0 +1,19 @@
+{
+  "name": "@budget-integration/budget-service",
+  "version": "1.0.0",
+  "description": "Budget Domain API & Worker Service (Budgets, Actuals, Income Statement, Budget Reports, Property Closings)",
+  "main": "./src/main.ts",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@budget-integration/database": "*",
+    "@budget-integration/domain-budget": "*",
+    "@budget-integration/integration-core": "*",
+    "@budget-integration/worker": "*",
+    "@budget-integration/domain-rent": "*"
+  },
+  "license": "ISC",
+  "type": "module"
+}

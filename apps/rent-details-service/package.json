@@ -1,0 +1,18 @@
+{
+  "name": "@budget-integration/rent-details-service",
+  "version": "1.0.0",
+  "description": "Rent Details Domain API & Worker Service (Box Score, Resident Retention, Occupancy Projections)",
+  "main": "./src/main.ts",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@budget-integration/database": "*",
+    "@budget-integration/domain-rent": "*",
+    "@budget-integration/integration-core": "*",
+    "@budget-integration/worker": "*"
+  },
+  "license": "ISC",
+  "type": "module"
+}

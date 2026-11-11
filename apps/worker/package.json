@@ -1,0 +1,21 @@
+{
+  "name": "@budget-integration/worker",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@budget-integration/database": "*",
+    "@budget-integration/connector-entrata": "*",
+    "@budget-integration/domain-budget": "*",
+    "@budget-integration/domain-property": "*",
+    "@budget-integration/integration-core": "*",
+    "@budget-integration/domain-rent": "*"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module"
+}
