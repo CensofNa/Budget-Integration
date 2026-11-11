@@ -1,1174 +1,346 @@
 # Budget Integration Platform
 
-## 1. Purpose
-
-The **Budget Integration Platform** is a Node.js / TypeScript integration framework for synchronizing property-management data from external PMS systems such as **Entrata**, **Yardi**, and **Excel imports** into a common canonical PostgreSQL database.
-
-The platform supports:
-
-- Multi-company and multi-organization data isolation
-- Multiple PMS sources per organization
-- Staging-first integration
-- Canonical production tables
-- Source-to-canonical record mapping
-- Idempotent sync using `sourceHash`
-- BullMQ-based background processing
-- Scheduled sync jobs
-- Future plug-in style connectors
-
-Current focus:
-
-- Entrata Property sync
-- Entrata Property Unit sync
-- Planned Entrata Unit Type sync
-- Future Yardi and Excel integration
+A Node.js and TypeScript integration platform for synchronizing property management and financial data from external PMS systems (such as **Entrata**, **Yardi**, and **Excel imports**) into a canonical PostgreSQL database.
 
 ---
 
-## 2. Core Architecture
+## 1. Overview & Core Capabilities
+
+The **Budget Integration Platform** decouples PMS data synchronization from core application business logic. It provides:
+
+- **Independent Domain Microservices**: 3 isolated NestJS services (`property-service`, `budget-service`, `rent-details-service`) that can be built, started, and scaled independently.
+- **Embedded or Standalone Queue Processing**: Powered by **pg-boss**, a robust job queue engine that runs directly inside PostgreSQL (schema `pgboss`). **No Redis is required.**
+- **Staging-First Architecture**: External PMS payloads are captured raw into audit staging tables before being validated, mapped, and transformed into canonical models.
+- **Strict Idempotency**: SHA-256 `sourceHash` computation ensures that identical external payloads are skipped automatically (`SKIPPED`) without generating redundant database writes.
+- **Source-to-Canonical Mapping**: `SourceRecordMap` tracks relationships between external PMS IDs and internal UUIDs, supporting multiple providers and preventing duplicate records.
+- **Multi-Tenant Data Isolation**: Every canonical and staging record enforces strict `companyId` and `organizationId` boundaries.
+- **Production-Ready Process Management**: Managed with **PM2** for isolated, zero-downtime reloads per microservice.
+
+---
+
+## 2. Microservices Architecture
+
+The platform is divided into **3 independent domain microservices** plus a standalone worker CLI and a legacy unified API:
+
+| Service Name | Port | Swagger UI | Domain Responsibilities |
+| :--- | :--- | :--- | :--- |
+| **`property-service`** | `3001` | `http://localhost:3001/api` | Properties, Property Units, Unit Types, GL Account Trees |
+| **`budget-service`** | `3002` | `http://localhost:3002/api` | Budgets, Budget Actuals, Income Statement Actuals, Balance Sheet Actuals, Budget Reports, Property Closings, Send/Update Budgets |
+| **`rent-details-service`** | `3003` | `http://localhost:3003/api` | Box Score Reports, Resident Retention Reports, Occupancy Projections |
+| **`worker`** | CLI | N/A | Standalone runner for domain background workers (`pg-boss`) |
+| **`api`** | `3000` | `http://localhost:3000/api` | Legacy monolithic API gateway bundling all modules |
 
 ```text
-External PMS / Excel
-        ↓
-Connector
-        ↓
-Sync Job
-        ↓
-Staging API Batch
-        ↓
-Staging Entity Rows
-        ↓
-Transform Queue
-        ↓
-Transformer
-        ↓
-Canonical Tables
-        ↓
-SourceRecordMap
+       External PMS (Entrata / Yardi / Excel)
+                         │
+                         ▼
+             [Connectors & API Clients]
+                         │
+         ┌───────────────┼───────────────┐
+         ▼               ▼               ▼
+  property-service budget-service rent-details-service
+     (Port 3001)    (Port 3002)     (Port 3003)
+         │               │               │
+         └───────────────┼───────────────┘
+                         ▼
+        PostgreSQL Database (Prisma ORM)
+         ├── Domain Tables (Canonical)
+         ├── Staging Tables (Raw PMS payloads)
+         └── `pgboss` Schema (Queue management)
 ```
 
-### Important Rules
-
-1. Raw PMS payloads should not be stored directly in production tables.
-2. Full API responses go into `StagingApiBatch.rawResponse`.
-3. Individual raw records go into entity staging tables.
-4. Production tables must remain source-neutral.
-5. Every domain record should include:
-   - `companyId`
-   - `organizationId`
-6. External IDs should be mapped through `SourceRecordMap`.
-7. Repeated syncs should be safe through `sourceHash`.
+Each service embeds its own domain-scoped background worker by default (`ENABLE_EMBEDDED_WORKER=true`), meaning each service processes its own asynchronous queue jobs without relying on a separate worker process.
 
 ---
 
 ## 3. Technology Stack
 
-| Area | Technology |
-|---|---|
-| Runtime | Node.js |
-| Language | TypeScript |
-| ORM | Prisma |
-| Database | PostgreSQL |
-| Queue | BullMQ |
-| Queue Store | Redis |
-| HTTP Client | Axios |
-| Worker Runner | tsx |
-| Package Style | npm workspaces |
+| Area | Technology | Purpose |
+| :--- | :--- | :--- |
+| **Runtime** | Node.js (v20+ LTS) | JavaScript runtime |
+| **Language** | TypeScript (v5+) | Type-safe development |
+| **HTTP Framework** | NestJS (v11+) | Modular REST API and Swagger documentation |
+| **API Documentation** | Swagger / OpenAPI | Interactive UI at `/api` on each service |
+| **ORM** | Prisma (v6+) | Multi-file schema and database client |
+| **Database** | PostgreSQL (v15+) | Primary relational store and queue backend |
+| **Queue Engine** | **pg-boss** (v12+) | PostgreSQL-native job queue (**Redis is not required**) |
+| **HTTP Client** | Axios | External PMS API requests |
+| **Process Manager** | PM2 | Daemon, cluster, and individual process reload |
+| **Monorepo Style** | npm workspaces | Modular package and app management |
 
 ---
 
-## 4. Folder Structure
+## 4. Repository & Workspace Structure
 
 ```text
 budget-integration-platform/
 │
 ├── apps/
-│   └── worker/
-│       ├── src/
-│       │   ├── jobs/
-│       │   │   ├── sync-entrata-properties.job.ts
-│       │   │   ├── transform-staged-properties.job.ts
-│       │   │   ├── sync-entrata-property-units.job.ts
-│       │   │   └── transform-staged-property-units.job.ts
-│       │   │
-│       │   ├── processors/
-│       │   │   ├── sync-property.processor.ts
-│       │   │   ├── sync-property-units.processor.ts
-│       │   │   ├── transform-property-staging.processor.ts
-│       │   │   └── transform-property-unit-staging.processor.ts
-│       │   │
-│       │   ├── schedulers/
-│       │   │   ├── entrata-property.scheduler.ts
-│       │   │   └── entrata-property-unit.scheduler.ts
-│       │   │
-│       │   └── main.ts
-│       │
-│       └── package.json
+│   ├── property-service/     # Port 3001: Properties, Units, Unit Types, GL Trees
+│   ├── budget-service/       # Port 3002: Budgets, Actuals, Income Statement, Reports
+│   ├── rent-details-service/ # Port 3003: Box Score, Resident Retention, Occupancy
+│   ├── worker/               # Standalone pg-boss background worker CLI
+│   └── api/                  # Legacy monolithic API (Port 3000)
 │
 ├── packages/
-│   ├── database/
-│   │   ├── src/
-│   │   │   ├── prisma.ts
-│   │   │   └── index.ts
-│   │   └── package.json
-│   │
-│   ├── integration-core/
-│   │   ├── src/
-│   │   │   ├── queues/
-│   │   │   │   ├── queue-names.ts
-│   │   │   │   ├── job-types.ts
-│   │   │   │   ├── redis-connection.ts
-│   │   │   │   └── integration-queues.ts
-│   │   │   │
-│   │   │   ├── transformers/
-│   │   │   │   ├── entrata-property.transformer.ts
-│   │   │   │   └── entrata-property-unit.transformer.ts
-│   │   │   │
-│   │   │   ├── utils/
-│   │   │   │   └── hash.ts
-│   │   │   │
-│   │   │   └── index.ts
-│   │   └── package.json
-│   │
-│   └── connectors/
-│       └── entrata/
-│           ├── src/
-│           │   ├── entrata-property.connector.ts
-│           │   ├── entrata-property-units.connector.ts
-│           │   ├── entrata-unit-types.connector.ts
-│           │   └── index.ts
-│           └── package.json
+│   ├── connectors/           # External PMS API clients (e.g., Entrata connectors)
+│   ├── database/             # Prisma client instance and database helper exports
+│   ├── domain-property/      # Property domain logic, DTOs, and services
+│   ├── domain-budget/        # Budget domain logic, DTOs, and services
+│   ├── domain-rent/          # Rent & occupancy domain logic and services
+│   ├── integration-core/     # pg-boss queues, job types, base transformers, hash utils
+│   ├── plugin-loader/        # Dynamic connector and plugin loading system
+│   ├── plugin-sdk/           # SDK interface for future PMS plugins
+│   └── common/               # Shared utilities, logging, and constants
 │
 ├── prisma/
-│   ├── schema.prisma
-│   ├── seed.ts
-│   └── migrations/
+│   ├── schema/               # Multi-file Prisma schemas:
+│   │   ├── 00-enums.prisma
+│   │   ├── 02-core.prisma
+│   │   ├── 10-integration.prisma
+│   │   ├── 20-property.prisma
+│   │   ├── 30-occupancy.prisma
+│   │   └── 40-proforma.prisma
+│   ├── schema.prisma         # Merged schema reference
+│   └── seed.ts               # Database seeder script
 │
-├── prisma.config.ts
+├── ecosystem.config.cjs      # PM2 production configuration for the 3 domain services
+├── DEPLOYMENT_AND_DEV_GUIDE.md
 ├── package.json
-├── tsconfig.json
-└── README.md
+└── tsconfig.json
 ```
 
 ---
 
-## 5. File Naming Conventions
+## 5. Background Queue Architecture (pg-boss)
 
-| Purpose | Pattern | Example |
-|---|---|---|
-| Connector | `<provider>-<entity>.connector.ts` | `entrata-property-units.connector.ts` |
-| Sync job | `sync-<provider>-<entity>.job.ts` | `sync-entrata-property-units.job.ts` |
-| Transform job | `transform-staged-<entity>.job.ts` | `transform-staged-property-units.job.ts` |
-| Transformer | `<provider>-<entity>.transformer.ts` | `entrata-property-unit.transformer.ts` |
-| Processor | `<action>-<entity>.processor.ts` | `sync-property-units.processor.ts` |
-| Scheduler | `<provider>-<entity>.scheduler.ts` | `entrata-property-unit.scheduler.ts` |
+Background synchronization, payload staging, transformation, and projections are powered entirely by **pg-boss**.
 
----
+- **No Redis Dependency**: pg-boss stores its queues, job schedules, retry counts, and dead-letter statuses in PostgreSQL tables under the dedicated `pgboss` schema.
+- **Embedded Mode (Default)**: When `ENABLE_EMBEDDED_WORKER=true`, starting a domain service automatically boots its domain worker listener inside the same process.
+- **Standalone Mode**: Running `npm run dev:worker` allows you to run workers in an isolated CLI process with an interactive or environment-configured `WORKER_MODE`.
 
-## 6. Queue Naming
+### Queue Names by Domain
 
-Recommended queue names:
+#### Property Domain
+- `sync-property-queue` & `transform-property-staging-queue`
+- `sync-property-unit-queue` & `transform-property-unit-staging-queue`
+- `sync-unit-type-queue` & `transform-unit-type-staging-queue`
+- `sync-gl-tree-queue` & `transform-gl-tree-staging-queue`
 
-```ts
-export const QueueNames = {
-  SyncProperty: "sync-property-queue",
-  SyncPropertyUnit: "sync-property-unit-queue",
-  TransformPropertyStaging: "transform-property-staging-queue",
-  TransformPropertyUnitStaging: "transform-property-unit-staging-queue"
-} as const;
-```
+#### Budget Domain
+- `sync-budget-queue` & `transform-budget-staging-queue`
+- `sync-budget-actual-queue` & `transform-budget-actual-staging-queue`
+- `project-budget-actual-snapshots-queue`
+- `sync-income-statement-actuals-queue` & `stage-income-statement-actuals-queue`
+- `transform-income-statement-actuals-queue` & `project-income-statement-actuals-queue`
+- `process-income-statement-property-queue`
+- `sync-balance-sheet-actuals-queue`, `stage-balance-sheet-actuals-queue`, etc.
 
-Do not confuse queue names with job names.
-
-| Queue | Job Name |
-|---|---|
-| `sync-property-queue` | `sync-entrata-property` |
-| `sync-property-unit-queue` | `sync-entrata-property-units` |
-| `transform-property-staging-queue` | `transform-property-staging` |
-| `transform-property-unit-staging-queue` | `transform-property-unit-staging` |
-
-Correct job-name check:
-
-```ts
-if (job.name !== "sync-entrata-property-units") {
-  return;
-}
-```
-
-Incorrect:
-
-```ts
-if (job.name !== "sync-property-unit-queue") {
-  return;
-}
-```
+#### Rent Details Domain
+- `sync-report-data-queue`
+- `transform-report-data-staging-queue`
+- `project-occupancy-from-reports-queue`
 
 ---
 
-## 7. Database Concepts
-
-### Company
-
-Represents the customer/company.
-
-### Organization
-
-Represents the business unit, root organization, legal entity, or operating organization.
-
-### IntegrationSource
-
-Represents a configured PMS/source for an organization.
-
-Examples:
+## 6. Staging & Idempotency Pipeline
 
 ```text
-GALLERY_ENTRATA
-GALLERY_YARDI
-GALLERY_EXCEL
+External PMS API
+       ↓
+Connector (e.g. Entrata)
+       ↓
+StagingApiBatch (Audit record with raw request/response)
+       ↓
+Staging Entity Table (Row per item with sourceHash)
+       ↓
+Transform Queue (pg-boss)
+       ↓
+Transformer (Maps fields, resolves foreign keys via SourceRecordMap)
+       ↓
+Canonical Production Tables (Source-neutral domain records)
+       ↓
+Projection Queue (pg-boss) [Optional]
+       ↓
+Projection Tables (Aggregated reporting & analytical snapshots)
 ```
 
-### IntegrationSourceConfig
-
-Stores source-level connection and credential details.
-
-Example:
-
-```json
-{
-  "baseUrl": "https://apis.entrata.com",
-  "orgSlug": "galleryresidential"
-}
-```
-
-Credential example:
-
-```json
-{
-  "authType": "apikey",
-  "apiKeySecretRef": "vault://gallery/entrata/api-key"
-}
-```
-
-For local development only:
-
-```json
-{
-  "authType": "apikey",
-  "apiKey": "local-dev-key"
-}
-```
-
-### IntegrationSourceEntity
-
-Stores entity-specific configuration.
-
-Examples:
-
-```text
-Property
-PropertyUnit
-UnitType
-Budget
-Actual
-```
-
-Recommended fields:
-
-```prisma
-syncSettingsJson   Json?
-mappingProfileJson Json?
-```
-
-Example Property config:
-
-```json
-{
-  "schedule": "0 */1 * * *",
-  "batchSize": 50,
-  "syncMode": "incremental"
-}
-```
-
-Example PropertyUnit config:
-
-```json
-{
-  "schedule": "*/2 * * * *",
-  "propertyUnitBatchSize": 1,
-  "transformBatchSize": 50,
-  "syncMode": "incremental",
-  "availableUnitsOnly": false,
-  "usePropertyPreferences": false,
-  "includeDisabledFloorplans": false,
-  "includeDisabledUnits": true
-}
-```
-
-### SourceRecordMap
-
-Maps external records to canonical records.
-
-Example:
-
-```text
-Entrata PropertyID 100154067 → properties.id
-Entrata UnitID 55270 → property_units.id
-```
-
-This table is used for:
-
-- Matching
-- Idempotency
-- Re-sync
-- Multi-source mapping
-- Avoiding duplicate canonical records
+### Idempotency Flow (sourceHash)
+1. The connector receives external entities.
+2. The payload is normalized (sorted JSON keys) and a SHA-256 hash is computed.
+3. The platform checks `SourceRecordMap.sourceHash`:
+   - **Hash Matches**: Record has not changed in the PMS &rarr; Staging status is marked `SKIPPED`. No transformation or write occurs.
+   - **Hash Differs / New Record**: Staging status is marked `PENDING` &rarr; Transform job is dispatched to update canonical tables and update the hash.
 
 ---
 
-## 8. Staging Pattern
+## 7. Environment Configuration
 
-### StagingApiBatch
+Create a `.env` file in the root directory based on `.env.example`:
 
-Stores full request and response:
+```ini
+# PostgreSQL Database (used by Prisma and pg-boss)
+DATABASE_URL="postgresql://postgres:password@localhost:5432/century_budget?schema=public"
 
-```text
-entityName
-sourceMethod
-requestId
-rawRequest
-rawResponse
-status
-```
-
-### StagingProperty
-
-Stores one external property payload per row.
-
-### StagingPropertyUnit
-
-Stores one external property unit payload per row.
-
-### Why Staging Exists
-
-Staging provides:
-
-- Audit trail
-- Replay support
-- Debugging
-- Raw payload preservation
-- Safer transformations
-- Separation between external payload and canonical records
-
----
-
-## 9. Idempotency / sourceHash
-
-The platform creates a deterministic SHA256 hash from the normalized source payload.
-
-Flow:
-
-```text
-Incoming payload
-  ↓
-Normalize JSON key order
-  ↓
-Create sourceHash
-  ↓
-Compare with SourceRecordMap.sourceHash
-```
-
-If unchanged:
-
-```text
-transformStatus = SKIPPED
-```
-
-If new or changed:
-
-```text
-transformStatus = PENDING
-```
-
-Expected logs:
-
-```text
-First run:
-Received: 118, Staged: 118, Skipped: 0, Pending transform: 118
-
-Second run with no changes:
-Received: 118, Staged: 118, Skipped: 118, Pending transform: 0
-```
-
----
-
-## 10. BullMQ Flow
-
-### Property Sync
-
-```text
-entrata-property.scheduler.ts
-  ↓
-sync-property-queue
-  ↓
-sync-property.processor.ts
-  ↓
-sync-entrata-properties.job.ts
-  ↓
-StagingProperty
-  ↓
-transform-property-staging-queue
-  ↓
-transform-property-staging.processor.ts
-  ↓
-transform-staged-properties.job.ts
-  ↓
-entrata-property.transformer.ts
-  ↓
-properties and related tables
-```
-
-### Property Unit Sync
-
-```text
-entrata-property-unit.scheduler.ts
-  ↓
-sync-property-unit-queue
-  ↓
-sync-property-units.processor.ts
-  ↓
-sync-entrata-property-units.job.ts
-  ↓
-StagingPropertyUnit
-  ↓
-transform-property-unit-staging-queue
-  ↓
-transform-property-unit-staging.processor.ts
-  ↓
-transform-staged-property-units.job.ts
-  ↓
-entrata-property-unit.transformer.ts
-  ↓
-property_units and related tables
-```
-
----
-
-## 11. Entrata Integration Notes
-
-### Property API
-
-Endpoint pattern:
-
-```text
-https://apis.entrata.com/ext/orgs/{orgSlug}/v1/properties
-```
-
-Method:
-
-```json
-{
-  "method": {
-    "name": "getProperties"
-  }
-}
-```
-
-### Property Unit API
-
-Endpoint pattern currently verified in implementation:
-
-```text
-https://apis.entrata.com/ext/orgs/{orgSlug}/v1/propertyunits
-```
-
-Method:
-
-```json
-{
-  "method": {
-    "name": "getPropertyUnits",
-    "params": {
-      "propertyIds": "100154067",
-      "availableUnitsOnly": "0",
-      "usePropertyPreferences": "0",
-      "includeDisabledFloorplans": "0",
-      "includeDisabledUnits": "1"
-    }
-  }
-}
-```
-
-Current config:
-
-```json
-{
-  "propertyUnitBatchSize": 1
-}
-```
-
-This means:
-
-```text
-1 propertyId per getPropertyUnits API request
-```
-
-The job still loops through all mapped properties.
-
-### Unit Type API
-
-Endpoint pattern:
-
-```text
-https://apis.entrata.com/ext/orgs/{orgSlug}/v1/propertyunits
-```
-
-Method:
-
-```json
-{
-  "method": {
-    "name": "getUnitTypes",
-    "params": {
-      "propertyId": 100121180
-    }
-  }
-}
-```
-
-Recommended entity name:
-
-```text
-UnitType
-```
-
----
-
-## 12. Environment Variables
-
-Create `.env`:
-
-```env
-DATABASE_URL="postgresql://postgres:your_password@localhost:5432/budget_integration_db?schema=public"
-
+# Entrata API Configuration
 ENTRATA_BASE_URL="https://apis.entrata.com"
-ENTRATA_API_KEY="your_actual_entrata_api_key"
+ENTRATA_API_KEY="your-entrata-api-key"
 
+# Domain Service Port Configurations
 PROPERTY_SERVICE_PORT=3001
 BUDGET_SERVICE_PORT=3002
 RENT_DETAILS_SERVICE_PORT=3003
 PORT=3000
 
+# Worker Settings
+# Enables embedded pg-boss workers inside domain services (default: true)
 ENABLE_EMBEDDED_WORKER=true
+SYNC_INCOME_STATEMENT_ACTUALS_CONCURRENCY=1
 ```
+
+> **Note**: A Redis server (`REDIS_HOST`, `REDIS_PORT`, etc.) is **not** used or needed.
 
 ---
 
-## 13. Prisma Commands
+## 8. Local Development Guide
 
-```powershell
-# Reformat all files under prisma/schema/*.prisma consistently.
-npx prisma format
-
-# Regenerate the Prisma Client (packages/database) from the schema.
-# Run this after every schema change and after a fresh npm install.
-npx prisma generate
-
-# Create a new migration from the current schema diff and apply it locally.
-# Prompts for confirmation and runs `prisma generate` automatically after.
-npx prisma migrate dev --name migration_name_here
-
-# Real examples from this project's migration history:
-npx prisma migrate dev --name add_property_unit_schema
-npx prisma migrate dev --name add_entity_specific_sync_config
-
-# Re-run prisma/seed.ts (see the "seed" entry in package.json).
-npx prisma db seed
-
-# Open Prisma Studio, a visual DB browser, at http://localhost:5555.
-npx prisma studio
-
-# Validate prisma/schema/*.prisma for syntax/relation errors without
-# generating a client or touching the database.
-npx prisma validate
-
-# Sanity-check that the CLI and installed client/package versions match —
-# a mismatch is a common source of "model not found" errors.
-npx prisma --version
-npm ls prisma
-npm ls @prisma/client
-```
-
----
-
-## 14. Prisma 7 Note
-
-For Prisma 7, keep the datasource URL in `prisma.config.ts`.
-
-Example:
-
-```ts
-import "dotenv/config";
-import { defineConfig, env } from "prisma/config";
-
-export default defineConfig({
-  schema: "prisma/schema.prisma",
-  migrations: {
-    path: "prisma/migrations",
-    seed: "tsx prisma/seed.ts"
-  },
-  datasource: {
-    url: env("DATABASE_URL")
-  }
-});
-```
-
-`schema.prisma`:
-
-```prisma
-datasource db {
-  provider = "postgresql"
-}
-```
-
-Keep `prisma` and `@prisma/client` versions aligned.
-
----
-
-## 15. npm Commands
-
-All available `package.json` scripts, grouped by purpose.
-
-### Setup
-
-```powershell
-# Install all workspace dependencies (apps/*, packages/*, packages/connectors/*)
+### Step 1: Install Dependencies
+```bash
 npm install
 ```
 
-### Run apps (dev, via tsx — no build step required)
+### Step 2: Database Preparation
+```bash
+# Generate Prisma Client
+npm run prisma:generate
 
-```powershell
-# Run the worker: BullMQ processors for sync/transform/projection jobs.
-# On startup it prompts interactively for which processors to load
-# (ALL, REPORT_ONLY, BUDGET_ACTUAL_ONLY, BUDGET_ONLY, PROPERTY_ONLY,
-# PROPERTY_UNIT_ONLY, UNIT_TYPE_ONLY, GL_TREE_ONLY, NONE).
-npm run dev:worker
+# Apply migrations (for local development database)
+npm run prisma:migrate
 
-# Skip the interactive prompt by setting WORKER_MODE (useful for scripts
-# or a process manager like PM2). Must be one of the modes listed above.
-$env:WORKER_MODE = "BUDGET_ACTUAL_ONLY"
-npm run dev:worker
-
-# Run the NestJS API (apps/api): currently exposes the integration-sync
-# controller, e.g. POST /integration-sync/entrata/budget-actuals.
-npm run dev:api
+# (Optional) Seed initial sample data
+npm run prisma:seed
 ```
 
-Add the worker script if it's missing from `package.json`:
+### Step 3: Run Domain Services
 
-```powershell
-npm pkg set scripts.dev:worker="tsx apps/worker/src/main.ts"
+You can run individual domain services or all of them concurrently:
+
+```bash
+# Run all 3 individual services concurrently with color-coded logs
+npm run dev:services
+
+# OR run services individually:
+npm run dev:property       # Property Service on Port 3001
+npm run dev:budget         # Budget Service on Port 3002
+npm run dev:rent-details   # Rent Details Service on Port 3003
+
+# Run the standalone worker CLI (interactive menu):
+npm run dev:worker
+
+# Run the standalone worker in non-interactive mode:
+WORKER_MODE=BUDGET_DOMAIN npm run dev:worker
 ```
 
-### Type check and build
+### Step 4: Access Swagger Documentation
+- **Property Service**: [http://localhost:3001/api](http://localhost:3001/api)
+- **Budget Service**: [http://localhost:3002/api](http://localhost:3002/api)
+- **Rent Details Service**: [http://localhost:3003/api](http://localhost:3003/api)
 
-```powershell
-# Type check the whole workspace without emitting output. Run this after
-# any change — it's the fastest way to catch mistakes across packages.
+### Step 5: Typecheck & Build
+```bash
+# Typecheck all workspaces without emitting files
 npm run dev:typecheck
 
-# Compile TypeScript to JS (tsc) for a production build.
+# Compile TypeScript to JavaScript
 npm run dev:build
 ```
 
-### Prisma (npm script aliases)
+---
 
-These wrap the `npx prisma ...` commands in section 13 above and read
-`DATABASE_URL` from `.env` the same way.
+## 9. Production Deployment with PM2
 
-```powershell
-# Generate the Prisma Client from prisma/schema — run after pulling schema
-# changes or editing any prisma/schema/*.prisma file.
+The file [`ecosystem.config.cjs`](./ecosystem.config.cjs) defines the 3 independent microservices with production environment flags (`NODE_ENV=production`, `NON_INTERACTIVE=true`).
+
+### Starting All Services
+```bash
+# Start all 3 domain services via PM2
+npm run pm2:start
+
+# Check service status
+npm run pm2:status
+```
+
+### Deploying / Reloading a Single Service
+When making changes to a specific domain (for example, `budget-service`), deploy and reload **only that service** without interrupting the others:
+
+```bash
+# Pull changes from git
+git pull origin main
+
+# Re-generate Prisma client if schema changed
 npm run prisma:generate
 
-# Create and apply a new migration in dev, prompts for a migration name.
+# Reload only the modified service:
+npm run pm2:reload:property      # Port 3001
+npm run pm2:reload:budget        # Port 3002
+npm run pm2:reload:rent-details  # Port 3003
+```
+
+### Monitoring & Logs
+```bash
+# Real-time logs for all services
+pm2 logs
+
+# Logs for a specific service
+pm2 logs property-service
+pm2 logs budget-service
+pm2 logs rent-details-service
+
+# PM2 system monitor dashboard
+pm2 monit
+```
+
+---
+
+## 10. Prisma & Database Management
+
+```bash
+# Reformat multi-file schemas under prisma/schema/*.prisma
+npx prisma format
+
+# Re-generate Prisma Client from schemas
+npm run prisma:generate
+
+# Run schema migrations in development
 npm run prisma:migrate
 
-# Open Prisma Studio (visual DB browser) at http://localhost:5555.
+# Open visual database browser at http://localhost:5555
 npm run prisma:studio
-```
 
-### Tests
-
-```powershell
-# No test suite is configured yet; this currently just exits with an error.
-npm test
+# Validate Prisma schemas without touching the database
+npx prisma validate
 ```
 
 ---
 
-## 16. Local Setup Flow
-
-```powershell
-# 1. Install dependencies
-npm install
-
-# 2. Make sure the "budget-integration-redis" container is running,
-#    reachable at the host/port configured in .env (REDIS_HOST, REDIS_PORT).
-#    TODO: document the exact start command for this container.
-
-# 3. Prepare the database
-npx prisma format
-npx prisma generate
-npx prisma migrate dev
-npx prisma db seed
-
-# 4. Type check (optional, but cheap and catches setup issues early)
-npm run dev:typecheck
-
-# 5. Run the worker — pick a mode at the interactive prompt, or set
-#    WORKER_MODE beforehand to skip it (see section 15 for valid values).
-npm run dev:worker
-
-# Optional: run the API in another terminal.
-npm run dev:api
-```
-
----
-
-## 17. Expected Worker Logs
-
-Scheduler registration:
-
-```text
-Budget Integration Worker started
-Registered Property scheduler: sync-entrata-property-...
-Registered PropertyUnit scheduler: sync-entrata-property-units-...
-Schedulers registered. Workers are running. Press Ctrl+C to stop.
-```
-
-Property sync with no changes:
-
-```text
-Entrata Property sync completed. Received: 118, Staged: 118, Skipped: 118, Pending transform: 0.
-```
-
-PropertyUnit sync:
-
-```text
-PropertyUnit sync found 119 distinct property IDs in 119 batches. Batch size: 1.
-Calling getPropertyUnits batch 1/119...
-Received getPropertyUnits batch 1/119...
-Entrata PropertyUnit sync completed...
-PropertyUnit transform batch processed...
-```
-
----
-
-## 18. Cleanup SQL
-
-Remove property and unit data:
-
-```sql
-delete from property_unit_spaces;
-delete from property_unit_addresses;
-delete from property_units;
-
-delete from lease_start_windows;
-delete from property_lease_terms;
-delete from property_space_options;
-delete from space_options;
-delete from property_office_hours;
-delete from property_post_months;
-delete from property_addresses;
-
-delete from source_record_maps
-where canonical_table_name in ('properties', 'property_units')
-   or entity_name in ('Property', 'PropertyUnit');
-
-delete from staging_property_units;
-delete from staging_properties;
-
-delete from staging_api_batches
-where entity_name in ('Property', 'PropertyUnit');
-
-delete from integration_sync_runs
-where entity_name in ('Property', 'PropertyUnit')
-   or sync_type in ('PROPERTY_SYNC', 'PROPERTY_UNIT_SYNC');
-
-delete from integration_queue_jobs
-where entity_name in ('Property', 'PropertyUnit');
-
-delete from properties;
-```
-
-Clear Redis:
-
-```powershell
-docker exec -it redis redis-cli FLUSHALL
-```
-
----
-
-## 19. How to Add a New Entity for Existing Provider
-
-Example: Add Entrata `UnitType`.
-
-### Step 1: Add Prisma schema
-
-Recommended tables:
-
-```text
-staging_unit_types
-property_unit_types
-property_unit_type_floorplans
-property_unit_type_rent_terms
-```
-
-Run:
-
-```powershell
-npx prisma format
-npx prisma migrate dev --name prisma_init
-npx prisma generate
-
-npx prisma db seed
-```
-
-### Step 2: Add IntegrationSourceEntity
-
-Seed:
-
-```ts
-{
-  integrationSourceId: ids.entrataSourceId,
-  entityName: "UnitType",
-  isEnabled: true,
-  syncMode: "incremental",
-  isAuthoritative: true,
-  priorityOrder: 3,
-  syncSettingsJson: {
-    schedule: "*/10 * * * *",
-    propertyBatchSize: 1,
-    transformBatchSize: 50,
-    syncMode: "incremental"
-  }
-}
-```
-
-### Step 3: Add connector
-
-```text
-packages/connectors/entrata/src/entrata-unit-types.connector.ts
-```
-
-Export it:
-
-```ts
-export * from "./entrata-unit-types.connector.js";
-```
-
-### Step 4: Add sync job
-
-```text
-apps/worker/src/jobs/sync-entrata-unit-types.job.ts
-```
-
-Responsibilities:
-
-```text
-Fetch mapped property IDs
-Batch property IDs
-Call connector
-Create StagingApiBatch
-Create StagingUnitType rows
-Calculate sourceHash
-Skip unchanged records
-Return sync result
-```
-
-### Step 5: Add transformer
-
-```text
-packages/integration-core/src/transformers/entrata-unit-type.transformer.ts
-```
-
-Responsibilities:
-
-```text
-Resolve Property using SourceRecordMap
-Upsert canonical UnitType
-Upsert child floorplan/rent-term records
-Update SourceRecordMap
-Mark staging row TRANSFORMED
-```
-
-### Step 6: Add transform job
-
-```text
-apps/worker/src/jobs/transform-staged-unit-types.job.ts
-```
-
-### Step 7: Add queues
-
-Update:
-
-```text
-packages/integration-core/src/queues/queue-names.ts
-packages/integration-core/src/queues/job-types.ts
-packages/integration-core/src/queues/integration-queues.ts
-```
-
-### Step 8: Add processors
-
-```text
-apps/worker/src/processors/sync-unit-types.processor.ts
-apps/worker/src/processors/transform-unit-type-staging.processor.ts
-```
-
-### Step 9: Add scheduler
-
-```text
-apps/worker/src/schedulers/entrata-unit-type.scheduler.ts
-```
-
-### Step 10: Register in main
-
-```ts
-import "./processors/sync-unit-types.processor.js";
-import "./processors/transform-unit-type-staging.processor.js";
-
-import { registerEntrataUnitTypeSchedulers } from "./schedulers/entrata-unit-type.scheduler.js";
-
-await registerEntrataUnitTypeSchedulers();
-```
-
----
-
-## 20. How to Add a New Provider
-
-Example: Add Yardi.
-
-### Step 1: Create connector folder
-
-```text
-packages/connectors/yardi/
-```
-
-### Step 2: Implement provider connector
-
-The connector should only call external APIs. It should not write to the database.
-
-```ts
-export async function fetchYardiProperties(options: YardiPropertyRequestOptions): Promise<unknown> {
-  return response.data;
-}
-```
-
-### Step 3: Add IntegrationSource
-
-Example:
-
-```text
-sourceType = "yardi"
-sourceCode = "GALLERY_YARDI"
-```
-
-### Step 4: Add IntegrationSourceConfig
-
-Example:
-
-```json
-{
-  "baseUrl": "https://yardi-api-url",
-  "clientId": "...",
-  "environment": "prod"
-}
-```
-
-### Step 5: Add IntegrationSourceEntity rows
-
-Examples:
-
-```text
-Property
-PropertyUnit
-UnitType
-Actual
-Budget
-```
-
-### Step 6: Create provider sync jobs
-
-```text
-sync-yardi-properties.job.ts
-sync-yardi-property-units.job.ts
-```
-
-### Step 7: Create provider transformers
-
-```text
-yardi-property.transformer.ts
-yardi-property-unit.transformer.ts
-```
-
-### Step 8: Reuse canonical tables
-
-Avoid provider-specific production tables unless necessary.
-
-Use:
-
-```text
-properties
-property_units
-source_record_maps
-```
-
----
-
-## 21. How to Add Excel Integration
-
-Excel should use the same pattern.
-
-```text
-Upload Excel
-  ↓
-Store file metadata
-  ↓
-Parse rows
-  ↓
-Create StagingApiBatch or StagingFileBatch
-  ↓
-Create staging rows
-  ↓
-Transform into canonical tables
-```
-
-Recommended future tables:
-
-```text
-staging_file_batches
-integration_uploaded_files
-```
-
-Use `IntegrationSourceEntity.mappingProfileJson` for column mapping:
-
-```json
-{
-  "columns": {
-    "Property Id": "sourcePropertyId",
-    "Unit Number": "unitNumber",
-    "Floor Plan": "floorPlanName",
-    "Bedrooms": "bedrooms",
-    "Bathrooms": "bathrooms"
-  }
-}
-```
-
----
-
-## 22. Production Hardening To Add
-
-Recommended future additions:
-
-```text
-integration_error_logs
-retry failed sync run API
-retry failed staging record API
-Bull Board monitoring
-queue metrics dashboard
-distributed sync locking
-API rate limiting
-secret provider integration
-dead-letter queue
-```
-
-Recommended distributed lock key:
-
-```text
-companyId + organizationId + integrationSourceId + entityName
-```
-
-Only one active sync should run per entity/source at a time.
-
----
-
-## 23. Common Troubleshooting
-
-### PropertyUnit job does not trigger
-
-Check:
-
-```text
-main.ts imports processor
-scheduler registered
-queue name matches processor queue
-job name check is correct
-Redis was flushed after queue rename
-```
-
-### Prisma model not found
-
-Run:
-
-```powershell
-npx prisma generate
-```
-
-If needed:
-
-```powershell
-Remove-Item -Recurse -Force node_modules\.prisma
-npx prisma generate
-```
-
-### Old queues still running
-
-```powershell
-docker exec -it budget-integration-redis redis-cli FLUSHALL
-```
-
-### Prisma version mismatch
-
-```powershell
-npx prisma --version
-npm ls prisma
-npm ls @prisma/client
-```
-
----
-
-## 24. Current Implementation Status
-
-| Area | Status |
-|---|---|
-| Property sync | Implemented |
-| Property staging | Implemented |
-| Property transformation | Implemented |
-| Property idempotency | Implemented |
-| PropertyUnit sync | Implemented |
-| PropertyUnit staging | Implemented |
-| PropertyUnit transformation | Implemented |
-| BullMQ queues | Implemented |
-| Scheduled jobs | Implemented |
-| Entity-specific configuration | In progress |
-| UnitType sync | Planned next |
-| Yardi connector | Planned |
-| Excel connector | Planned |
-| Monitoring dashboard | Planned |
-| Retry API/UI | Planned |
-
----
-
-## 25. Recommended Next Steps
-
-1. Complete entity-specific sync configuration.
-2. Move `Property` and `PropertyUnit` schedules to `IntegrationSourceEntity.syncSettingsJson`.
-3. Add `UnitType` schema.
-4. Implement Entrata `getUnitTypes`.
-5. Add UnitType BullMQ queue, scheduler, processor, sync job, and transformer.
-6. Add integration error log table.
-7. Add Bull Board monitoring.
-8. Add failed sync/staging retry support.
-9. Add Yardi connector.
-10. Add Excel import connector.
+## 11. Common Troubleshooting
+
+### 1. `pg-boss` Schema or Queue Errors
+- **Issue**: Queue table creation fails or jobs are not picked up.
+- **Fix**: Verify your PostgreSQL user has `CREATE SCHEMA` privileges on the target database. pg-boss will automatically initialize the `pgboss` schema on first startup.
+
+### 2. Resetting Staging and Queue State for an Entity
+- To purge stuck or test queue entries, use the domain helper `resetReportSyncState` or clear jobs from the `pgboss.job` table directly:
+  ```sql
+  -- Remove pending jobs for a specific queue in PostgreSQL
+  DELETE FROM pgboss.job WHERE name = 'sync-report-data-queue';
+  ```
+
+### 3. Prisma "Model Not Found" or Type Mismatch
+- **Issue**: TypeScript complains that a Prisma model or relation is missing.
+- **Fix**: Run `npm run prisma:generate`. If using an IDE like VS Code, reload the TypeScript language server (`Ctrl+Shift+P` &rarr; *TypeScript: Restart TS Server*).
+
+### 4. Port Conflicts
+- **Issue**: `EADDRINUSE: address already in use :::3001` (or 3002 / 3003).
+- **Fix**: Check for existing processes using `pm2 status` or run `netstat -ano | findstr :3001` to locate and terminate any orphan node processes.
