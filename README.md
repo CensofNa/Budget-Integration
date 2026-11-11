@@ -211,10 +211,28 @@ npm install
 ```
 
 ### Step 2: Database Preparation
+
+#### 1. Sync the Latest Prisma Schema from `budget-api`
+To keep the database schema in sync with the main backend (`budget-api`), run the automated sync command:
+
 ```bash
-# Generate Prisma Client
+# Automatically copies the latest schema from ../budget-api/prisma/schema and generates the Prisma client
+npm run prisma:sync
+```
+
+*(Manual alternative)*:
+```powershell
+# Windows PowerShell
+Copy-Item -Path "..\budget-api\prisma\schema\*" -Destination ".\prisma\schema\" -Recurse -Force
 npm run prisma:generate
 
+# Linux / Bash
+cp -r ../budget-api/prisma/schema/* ./prisma/schema/
+npm run prisma:generate
+```
+
+#### 2. Apply Migrations & Seed Data
+```bash
 # Apply migrations (for local development database)
 npm run prisma:migrate
 

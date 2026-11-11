@@ -18,6 +18,7 @@
     "pm2:status": "pm2 status",
     "dev:typecheck": "tsc --noEmit",
     "dev:build": "tsc",
+    "prisma:sync": "tsx scripts/sync-prisma-schema.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio"

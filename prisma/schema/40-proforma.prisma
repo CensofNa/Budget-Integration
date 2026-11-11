@@ -8,14 +8,16 @@ model ProformaScenario {
   status       ProformaStatus     @default(DRAFT)
   currentStep  ProformaWizardStep @default(INITIATE) @map("current_step")
 
-  propertyName String                @map("property_name") @db.VarChar(255)
-  address      String?               @db.VarChar(500)
-  submarket    String?               @db.VarChar(255)
-  startMonth   String                @map("start_month") @db.VarChar(20)
-  startYear    Int                   @map("start_year")
-  duration     Int                   @default(12)
-  businessType ProformaBusinessType? @map("business_type")
-  assignedLead String?               @map("assigned_lead") @db.VarChar(255)
+  propertyName  String                @map("property_name") @db.VarChar(255)
+  address       String?               @db.VarChar(500)
+  submarket     String?               @db.VarChar(255)
+  startMonth    String                @map("start_month") @db.VarChar(20)
+  startYear     Int                   @map("start_year")
+  duration      Int                   @default(12)
+  businessType  ProformaBusinessType? @map("business_type")
+  assignedLead  String?               @map("assigned_lead") @db.VarChar(255)
+  // COA template the wizard builds its grid from (Gallery, Livano, …).
+  coaTemplateId String?               @map("coa_template_id") @db.Uuid
 
   yearBuilt        Int?    @map("year_built")
   propertyClass    String? @map("property_class") @db.VarChar(100)
@@ -31,6 +33,7 @@ model ProformaScenario {
   company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   organisation Organisation @relation("OrganisationProformaScenarios", fields: [organisationId], references: [id])
   property     Property?    @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  coaTemplate  CoaTemplate? @relation(fields: [coaTemplateId], references: [id], onDelete: SetNull)
 
   unit            ProformaUnit[]
   assumptions     ProformaAssumptions?
@@ -40,6 +43,7 @@ model ProformaScenario {
   @@index([organisationId])
   @@index([companyId, organisationId, status])
   @@index([propertyId])
+  @@index([coaTemplateId])
   @@map("proforma_scenarios")
 }
 

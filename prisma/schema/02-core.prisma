@@ -974,17 +974,18 @@ model CoaAccount {
 }
 
 model CoaTemplate {
-  id             String                 @id @default(uuid()) @db.Uuid
-  companyId      String                 @map("company_id") @db.Uuid
-  organisationId String                 @map("organisation_id") @db.Uuid
-  name           String                 @db.VarChar(255)
-  description    String?                @db.VarChar(500)
-  isDefault      Boolean                @default(false) @map("is_default")
-  createdAt      DateTime               @default(now()) @map("created_at")
-  updatedAt      DateTime               @updatedAt @map("updated_at")
-  properties     Property[]
-  overrides      CoaTemplateOverride[]
-  exclusions     CoaTemplateExclusion[]
+  id                String                 @id @default(uuid()) @db.Uuid
+  companyId         String                 @map("company_id") @db.Uuid
+  organisationId    String                 @map("organisation_id") @db.Uuid
+  name              String                 @db.VarChar(255)
+  description       String?                @db.VarChar(500)
+  isDefault         Boolean                @default(false) @map("is_default")
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+  properties        Property[]
+  overrides         CoaTemplateOverride[]
+  exclusions        CoaTemplateExclusion[]
+  proformaScenarios ProformaScenario[]
 
   @@map("coa_templates")
 }

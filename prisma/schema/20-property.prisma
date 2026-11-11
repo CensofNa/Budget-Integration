@@ -8,7 +8,7 @@ model Property {
   type                                String?                                       @map("property_type") @db.VarChar(100)
   ownerName                           String?                                       @map("owner_name") @db.VarChar(255)
   status                              PropertyStatus                                @default(DRAFT)
-  operatingType                       PropertyOperatingType?                        @map("property_operating_type")
+  operatingType                       PropertyOperatingType                         @default(OPERATIONAL) @map("property_operating_type")
   budgetYear                          Int?
   budgetYearType                      PropertyBudgetYearType?                       @map("budget_year_type")
   fiscalYearStartMonth                Int?                                          @map("fiscal_year_start_month")

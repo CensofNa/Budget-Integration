@@ -261,37 +261,6 @@ model IntegrationErrorLog {
   @@map("integration_error_logs")
 }
 
-model IntegrationLog {
-  id String @id @default(uuid()) @db.Uuid
-
-  service String @db.VarChar(100)
-  level   String @db.VarChar(20)
-  message String @db.Text
-
-  companyId           String? @map("company_id") @db.Uuid
-  organisationId      String? @map("organisation_id") @db.Uuid
-  integrationSourceId String? @map("integration_source_id") @db.Uuid
-  syncRunId           String? @map("sync_run_id") @db.Uuid
-  jobId               String? @map("job_id") @db.VarChar(150)
-  queueName           String? @map("queue_name") @db.VarChar(150)
-
-  entityName String? @map("entity_name") @db.VarChar(100)
-  action     String? @map("action") @db.VarChar(100)
-
-  contextJson Json?   @map("context_json")
-  errorStack  String? @map("error_stack") @db.Text
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
-
-  @@index([service, createdAt])
-  @@index([level, createdAt])
-  @@index([companyId, createdAt])
-  @@index([entityName, createdAt])
-  @@index([syncRunId])
-  @@index([createdAt])
-  @@map("integration_logs")
-}
-
 model StagingApiBatch {
   id String @id @default(uuid()) @db.Uuid
 
@@ -1085,6 +1054,7 @@ model PropertyBudgetReport {
   @@map("property_budget_reports")
 }
 
+
 model StagingBalanceSheetActual {
   id String @id @default(uuid()) @db.Uuid
 
@@ -1217,4 +1187,36 @@ model PropertyBalanceSheetActual {
   @@index([syncRunId], map: "idx_property_bs_actuals_sync_run")
   @@index([accountNumber], map: "idx_property_bs_actuals_account")
   @@map("property_balance_sheet_actuals")
+}
+
+
+model IntegrationLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  service String @db.VarChar(100)
+  level   String @db.VarChar(20)
+  message String @db.Text
+
+  companyId           String? @map("company_id") @db.Uuid
+  organisationId      String? @map("organisation_id") @db.Uuid
+  integrationSourceId String? @map("integration_source_id") @db.Uuid
+  syncRunId           String? @map("sync_run_id") @db.Uuid
+  jobId               String? @map("job_id") @db.VarChar(150)
+  queueName           String? @map("queue_name") @db.VarChar(150)
+
+  entityName String? @map("entity_name") @db.VarChar(100)
+  action     String? @map("action") @db.VarChar(100)
+
+  contextJson Json?   @map("context_json")
+  errorStack  String? @map("error_stack") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+
+  @@index([service, createdAt])
+  @@index([level, createdAt])
+  @@index([companyId, createdAt])
+  @@index([entityName, createdAt])
+  @@index([syncRunId])
+  @@index([createdAt])
+  @@map("integration_logs")
 }
