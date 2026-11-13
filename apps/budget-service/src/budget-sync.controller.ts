@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Optional, Param, Post, Query, Res } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Inject, Optional, Param, Post, Query, Res } from "@nestjs/common";
 import type { ServerResponse } from "node:http";
 import { ApiBody, ApiOperation, ApiQuery, ApiTags } from "@nestjs/swagger";
 import { prisma } from "@budget-integration/database";
@@ -976,6 +976,82 @@ export class BudgetSyncController {
         action: "PROPERTY_CLOSINGS_DIRECT_FAILED",
         entityName: "PropertyClosing",
         companyId: body.companyId
+      });
+      throw error;
+    }
+  }
+
+  @Post(["entrata/sync-budgets", "entrata/sync-budget", "entrata/send-or-update-budgets"])
+  @ApiOperation({
+    summary: "Sync budget to Entrata (auto-switches between sendBudget and updateBudget based on budget existence)"
+  })
+  async sendOrUpdateBudgets(
+    @Body() body: SendBudgetRequestDto,
+    @Query("propertyId") queryPropertyId?: string,
+    @Query("fiscalYear") queryFiscalYear?: string,
+    @Query("dryRun") queryDryRun?: string
+  ): Promise<SendBudgetResponse> {
+    const propertyId = body?.propertyId || queryPropertyId;
+    if (!propertyId) {
+      throw new BadRequestException("propertyId is required in body or query parameters.");
+    }
+    const companyId = body?.companyId;
+    const organisationId = body?.organisationId;
+    const fiscalYear =
+      body?.fiscalYear !== undefined
+        ? Number(body.fiscalYear)
+        : queryFiscalYear !== undefined
+        ? Number(queryFiscalYear)
+        : undefined;
+    const dryRun =
+      body?.dryRun !== undefined
+        ? Boolean(body.dryRun)
+        : queryDryRun !== undefined
+        ? queryDryRun !== "false"
+        : true;
+
+    const dto: SendBudgetRequestDto = {
+      ...body,
+      propertyId,
+      ...(companyId ? { companyId } : {}),
+      ...(organisationId ? { organisationId } : {}),
+      ...(fiscalYear !== undefined ? { fiscalYear } : {}),
+      dryRun
+    };
+
+    await logger.info(
+      `Executing sync budget to Entrata for property ${dto.propertyId} (FY: ${dto.fiscalYear ?? 2027}, dryRun: ${dto.dryRun ?? true})`,
+      {
+        action: "SYNC_BUDGET_REQUEST",
+        entityName: "Budget",
+        contextJson: { propertyId: dto.propertyId, fiscalYear: dto.fiscalYear, dryRun: dto.dryRun }
+      }
+    );
+
+    try {
+      const service = this.sendEntrataBudgetsService ?? new SendEntrataBudgetsService();
+      const result = await service.syncBudget(dto);
+
+      await logger.info(
+        `Sync budget finished: operation=${result.operation}, success=${result.success}, requestId=${result.requestId ?? "none"}`,
+        {
+          action: "SYNC_BUDGET_COMPLETED",
+          entityName: "Budget",
+          contextJson: {
+            operation: result.operation,
+            success: result.success,
+            ...(result.requestId ? { requestId: result.requestId } : {}),
+            ...(result.budgetId ? { budgetId: result.budgetId } : {})
+          }
+        }
+      );
+
+      return result;
+    } catch (error) {
+      await logger.error("Sync budget to Entrata failed", error, {
+        action: "SYNC_BUDGET_FAILED",
+        entityName: "Budget",
+        contextJson: { propertyId: dto.propertyId, fiscalYear: dto.fiscalYear }
       });
       throw error;
     }

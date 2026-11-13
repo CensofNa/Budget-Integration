@@ -29,6 +29,137 @@ export class SendEntrataBudgetsService {
     return this.executeMode("UPDATE", dto);
   }
 
+  async syncBudget(
+    dto: SendBudgetRequestDto
+  ): Promise<SendBudgetResponse> {
+    const propertyId = dto.propertyId;
+    if (!propertyId) {
+      throw new BadRequestException("propertyId is required.");
+    }
+
+    const fiscalYear = dto.fiscalYear ?? 2027;
+    const dryRun = dto.dryRun !== undefined ? Boolean(dto.dryRun) : true;
+    const budgetScope = dto.budgetScope ?? "OPERATING";
+
+    // 1. Resolve internal property
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(propertyId);
+    const property = isUuid
+      ? await prisma.property.findUnique({ where: { id: propertyId } })
+      : await prisma.property.findFirst({ where: { code: propertyId } });
+
+    if (!property) {
+      throw new NotFoundException(
+        `Property '${propertyId}' not found in internal database.`
+      );
+    }
+
+    const internalPropertyId = property.id;
+    const internalPropertyCode = property.code ?? "";
+    const internalPropertyName = property.name ?? "";
+    const companyId = dto.companyId ?? property.companyId;
+    const organisationId = dto.organisationId ?? property.organisationId;
+
+    this.logger.log(
+      `[syncBudget] Checking if Entrata budget exists for property: ${internalPropertyName} (${internalPropertyCode}), fiscalYear: ${fiscalYear}`
+    );
+
+    // 2. Check local database (property_budgets) first
+    let budgetId: string | undefined;
+    const existingPb = await prisma.propertyBudget.findFirst({
+      where: {
+        propertyId: internalPropertyId,
+        fiscalYear
+      }
+    });
+
+    if (existingPb?.sourceBudgetId && existingPb.sourceBudgetId.trim() !== "") {
+      budgetId = existingPb.sourceBudgetId.trim();
+      this.logger.log(
+        `[syncBudget] Found existing Entrata budgetId '${budgetId}' in local property_budgets for fiscalYear ${fiscalYear}.`
+      );
+    }
+
+    // 3. If not found locally, query Entrata getBudgets to check if budget already exists in Entrata
+    if (!budgetId) {
+      try {
+        const integrationSource = await prisma.integrationSource.findFirst({
+          where: {
+            ...(dto.integrationSourceId ? { id: dto.integrationSourceId } : {}),
+            companyId,
+            organisationId,
+            sourceType: "entrata",
+            isActive: true
+          },
+          include: { config: true }
+        });
+
+        const configConn = (integrationSource?.config?.connectionJson as Record<string, any>) ?? {};
+        const configCreds = (integrationSource?.config?.credentialsJson as Record<string, any>) ?? {};
+        const baseUrl = configConn.baseUrl ?? process.env.ENTRATA_BASE_URL ?? "https://apis.entrata.com";
+        const orgSlug = configConn.orgSlug ?? "galleryresidential";
+        const apiKey = configCreds.apiKey ?? process.env.ENTRATA_API_KEY ?? "";
+        const endpointUrl = `${baseUrl.replace(/\/+$/, "")}/ext/orgs/${orgSlug}/v1/financial`;
+
+        if (apiKey) {
+          const targetPropertyId = internalPropertyCode;
+          const defaultBudgetName = `${internalPropertyName} ${fiscalYear}${budgetScope === "CAPEX" ? " Capex" : ""}`;
+          const targetBudgetName = dto.budgetName ?? defaultBudgetName;
+
+          const foundId = await this.fetchAndStoreEntrataBudgetId({
+            endpointUrl,
+            apiKey,
+            internalPropertyId,
+            propertyCodeForRequestId: internalPropertyCode || "100141352",
+            targetPropertyId,
+            fiscalYear,
+            budgetName: targetBudgetName,
+            companyId,
+            organisationId
+          });
+
+          if (foundId) {
+            budgetId = foundId;
+            this.logger.log(
+              `[syncBudget] Discovered existing budget in Entrata via getBudgets: budgetId='${budgetId}'.`
+            );
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(`[syncBudget] Could not verify budget existence via getBudgets: ${err?.message}`);
+      }
+    }
+
+    // 4. Switch between UPDATE and CREATE
+    const effectiveDto: UpdateBudgetRequestDto = {
+      ...dto,
+      propertyId,
+      fiscalYear,
+      dryRun,
+      budgetScope,
+      ...(budgetId ? { budgetId } : {})
+    };
+
+    if (budgetId) {
+      this.logger.log(
+        `[syncBudget] Budget exists (budgetId: ${budgetId}). Auto-switching to updateBudgets (UPDATE)...`
+      );
+      const res = await this.executeMode("UPDATE", effectiveDto);
+      return {
+        ...res,
+        operation: "UPDATE"
+      };
+    } else {
+      this.logger.log(
+        `[syncBudget] Budget does not exist for property ${internalPropertyName} (FY: ${fiscalYear}). Auto-switching to sendBudgets (CREATE)...`
+      );
+      const res = await this.executeMode("CREATE", effectiveDto);
+      return {
+        ...res,
+        operation: "CREATE"
+      };
+    }
+  }
+
   private async executeMode(
     mode: "CREATE" | "UPDATE",
     dto: UpdateBudgetRequestDto
@@ -312,6 +443,25 @@ export class SendEntrataBudgetsService {
           );
         }
       }
+
+      // If budget update was successful, update lastSyncedAt on property_budgets
+      if (isSuccess && !isCreate) {
+        try {
+          await prisma.propertyBudget.updateMany({
+            where: {
+              propertyId: internalPropertyId,
+              fiscalYear
+            },
+            data: {
+              lastSyncedAt: new Date(),
+              updatedSource: "ENTRATA"
+            }
+          });
+        } catch (syncErr: any) {
+          this.logger.warn(`Could not update lastSyncedAt on property_budgets: ${syncErr?.message}`);
+        }
+      }
+
 
       return {
         success: isSuccess,

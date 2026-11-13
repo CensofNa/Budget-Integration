@@ -1,5 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
+import { createLogger } from "@budget-integration/integration-core";
+
+const logger = createLogger("rent-details-service", prisma);
 
 export interface ProjectOccupancyFromReportsInput {
   companyId: string;
@@ -7,6 +10,8 @@ export interface ProjectOccupancyFromReportsInput {
   integrationSourceId: string;
   propertyId: string;
   budgetYear: number;
+  updateReforecast?: boolean;
+  reforecastPostMonth?: string;
 }
 
 const masterNames = {
@@ -410,68 +415,46 @@ export async function projectOccupancyFromReportsJob(
     }),
   ]);
 
-  // Sync move_ins and move_outs to occupancy_reforecast_details if within reforecastLockedTillMonth
-  if (property?.reforecastLockedTillMonth) {
-    const occupancyReforecast = await prisma.occupancyReforecast.findUnique({
-      where: {
-        propertyId_year: {
-          propertyId: input.propertyId,
-          year: input.budgetYear,
-        },
-      },
-      select: { id: true },
-    });
-
-    if (occupancyReforecast) {
-      for (let m = 1; m <= property.reforecastLockedTillMonth; m++) {
-        const boxRow = currentBoxRows.find((r) => {
-          const rMonth = new Date(r.reportMonth).getUTCMonth() + 1;
-          return rMonth === m;
-        });
-        const retentionRow = currentRetentionRows.find((r) => {
-          const rMonth = new Date(r.reportMonth).getUTCMonth() + 1;
-          return rMonth === m;
-        });
-
-        const updateData: {
-          moveIns?: number;
-          moveOuts?: number;
-          endingOccUnits?: number;
-          leaseExpirations?: number;
-          renewalPercent?: number;
-        } = {};
-
-        if (boxRow) {
-          if (boxRow.moveIns !== null && boxRow.moveIns !== undefined) {
-            updateData.moveIns = Math.round(Number(boxRow.moveIns));
-          }
-          if (boxRow.moveOuts !== null && boxRow.moveOuts !== undefined) {
-            updateData.moveOuts = Math.round(Number(boxRow.moveOuts));
-          }
-          if (boxRow.occupiedUnits !== null && boxRow.occupiedUnits !== undefined) {
-            updateData.endingOccUnits = Math.round(Number(boxRow.occupiedUnits));
+  // Execute fn_sync_box_score_to_reforecast only when updateReforecast is explicitly true
+  if (input.updateReforecast === true) {
+    try {
+      await prisma.$queryRawUnsafe(
+        `SELECT * FROM public.fn_sync_box_score_to_reforecast($1::uuid, $2::uuid, $3::uuid, $4::integer, $5::varchar)`,
+        input.companyId,
+        input.organisationId,
+        input.propertyId,
+        input.budgetYear,
+        input.reforecastPostMonth ?? null
+      );
+      await logger.info(
+        `Successfully synced actuals to occupancy reforecast via fn_sync_box_score_to_reforecast for property ${input.propertyId}`,
+        {
+          action: "SYNC_BOX_SCORE_REFORECAST_SUCCESS",
+          entityName: "Occupancy",
+          companyId: input.companyId,
+          organisationId: input.organisationId,
+          contextJson: {
+            propertyId: input.propertyId,
+            budgetYear: input.budgetYear,
+            reforecastPostMonth: input.reforecastPostMonth ?? null
           }
         }
-
-        if (retentionRow) {
-          if (retentionRow.expiringLeases !== null && retentionRow.expiringLeases !== undefined) {
-            updateData.leaseExpirations = Math.round(Number(retentionRow.expiringLeases));
-          }
-          if (retentionRow.renewalPercentage !== null && retentionRow.renewalPercentage !== undefined) {
-            updateData.renewalPercent = Number(retentionRow.renewalPercentage);
+      );
+    } catch (reforecastErr) {
+      await logger.error(
+        `Failed to sync actuals to occupancy reforecast for property ${input.propertyId}`,
+        reforecastErr,
+        {
+          action: "SYNC_BOX_SCORE_REFORECAST_FAILED",
+          entityName: "Occupancy",
+          companyId: input.companyId,
+          organisationId: input.organisationId,
+          contextJson: {
+            propertyId: input.propertyId,
+            budgetYear: input.budgetYear
           }
         }
-
-        if (Object.keys(updateData).length > 0) {
-          await prisma.occupancyReforecastDetail.updateMany({
-            where: {
-              reforecastId: occupancyReforecast.id,
-              month: m,
-            },
-            data: updateData,
-          });
-        }
-      }
+      );
     }
   }
 

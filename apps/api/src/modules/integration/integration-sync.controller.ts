@@ -1,4 +1,4 @@
-import { Body, Controller, Inject, Optional, Post, Res, Param, Get } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Inject, Optional, Post, Query, Res, Param, Get } from "@nestjs/common";
 import type { ServerResponse } from "node:http";
 import { ApiBody, ApiOperation } from "@nestjs/swagger";
 
@@ -684,7 +684,10 @@ export class IntegrationSyncController {
         ...(body.fiscalYear ? { fiscalYear: body.fiscalYear } : {}),
         ...(body.includePriorYear !== undefined ? { includePriorYear: body.includePriorYear } : {}),
         ...(body.periodStart ? { periodStart: body.periodStart } : {}),
-        ...(body.periodEnd ? { periodEnd: body.periodEnd } : {})
+        ...(body.periodEnd ? { periodEnd: body.periodEnd } : {}),
+        ...(body.updateFiscalConfig !== undefined ? { updateFiscalConfig: body.updateFiscalConfig } : {}),
+        ...(body.updateReforecast !== undefined ? { updateReforecast: body.updateReforecast } : {}),
+        ...(body.reforecastPostMonth ? { reforecastPostMonth: body.reforecastPostMonth } : {})
       },
       {
         attempts: 3,
@@ -763,6 +766,49 @@ export class IntegrationSyncController {
       integrationSourceId: body.integrationSourceId,
       ...(body.propertyIds ? { propertyIds: body.propertyIds } : {}),
     });
+  }
+
+  @Post(["entrata/sync-budgets", "entrata/sync-budget", "entrata/send-or-update-budgets"])
+  @ApiOperation({
+    summary: "Sync budget to Entrata (auto-switches between sendBudget and updateBudget based on budget existence)"
+  })
+  async sendOrUpdateBudgets(
+    @Body() body: SendBudgetRequestDto,
+    @Query("propertyId") queryPropertyId?: string,
+    @Query("fiscalYear") queryFiscalYear?: string,
+    @Query("dryRun") queryDryRun?: string
+  ): Promise<SendBudgetResponse> {
+    const propertyId = body?.propertyId || queryPropertyId;
+    if (!propertyId) {
+      throw new BadRequestException("propertyId is required in body or query parameters.");
+    }
+    const companyId = body?.companyId;
+    const organisationId = body?.organisationId;
+    const fiscalYear =
+      body?.fiscalYear !== undefined
+        ? Number(body.fiscalYear)
+        : queryFiscalYear !== undefined
+        ? Number(queryFiscalYear)
+        : undefined;
+    const dryRun =
+      body?.dryRun !== undefined
+        ? Boolean(body.dryRun)
+        : queryDryRun !== undefined
+        ? queryDryRun !== "false"
+        : true;
+
+    const dto: SendBudgetRequestDto = {
+      ...body,
+      propertyId,
+      ...(companyId ? { companyId } : {}),
+      ...(organisationId ? { organisationId } : {}),
+      ...(fiscalYear !== undefined ? { fiscalYear } : {}),
+      dryRun
+    };
+
+    const service =
+      this.sendEntrataBudgetsService ?? new SendEntrataBudgetsService();
+    return service.syncBudget(dto);
   }
 
   @Post("entrata/send-budgets")

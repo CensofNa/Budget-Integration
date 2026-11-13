@@ -94,6 +94,7 @@ export class UpdateBudgetRequestDto extends SendBudgetRequestDto {
 
 export interface SendBudgetResponse {
   success: boolean;
+  operation?: "CREATE" | "UPDATE";
   dryRun?: boolean;
   message: string;
   budgetScope?: "OPERATING" | "CAPEX" | "ALL" | string;

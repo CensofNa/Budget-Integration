@@ -98,7 +98,9 @@ export class RentDetailsSyncController {
         reportCode: "box_score",
         propertyCount,
         ...(body.propertyIds ? { propertyIds: body.propertyIds } : {}),
-        ...(body.fiscalYear !== undefined ? { fiscalYear: body.fiscalYear } : {})
+        ...(body.fiscalYear !== undefined ? { fiscalYear: body.fiscalYear } : {}),
+        ...(body.updateReforecast !== undefined ? { updateReforecast: body.updateReforecast } : {}),
+        ...(body.reforecastPostMonth ? { reforecastPostMonth: body.reforecastPostMonth } : {})
       }
     });
 
@@ -119,7 +121,10 @@ export class RentDetailsSyncController {
           ...(body.fiscalYear ? { fiscalYear: body.fiscalYear } : {}),
           ...(body.includePriorYear !== undefined ? { includePriorYear: body.includePriorYear } : {}),
           ...(body.periodStart ? { periodStart: body.periodStart } : {}),
-          ...(body.periodEnd ? { periodEnd: body.periodEnd } : {})
+          ...(body.periodEnd ? { periodEnd: body.periodEnd } : {}),
+          ...(body.updateFiscalConfig !== undefined ? { updateFiscalConfig: body.updateFiscalConfig } : {}),
+          ...(body.updateReforecast !== undefined ? { updateReforecast: body.updateReforecast } : {}),
+          ...(body.reforecastPostMonth ? { reforecastPostMonth: body.reforecastPostMonth } : {})
         },
         {
           attempts: 3,
@@ -179,7 +184,9 @@ export class RentDetailsSyncController {
         reportCode: "resident_retention",
         propertyCount,
         ...(body.propertyIds ? { propertyIds: body.propertyIds } : {}),
-        ...(body.fiscalYear !== undefined ? { fiscalYear: body.fiscalYear } : {})
+        ...(body.fiscalYear !== undefined ? { fiscalYear: body.fiscalYear } : {}),
+        ...(body.updateReforecast !== undefined ? { updateReforecast: body.updateReforecast } : {}),
+        ...(body.reforecastPostMonth ? { reforecastPostMonth: body.reforecastPostMonth } : {})
       }
     });
 
@@ -200,7 +207,10 @@ export class RentDetailsSyncController {
           ...(body.fiscalYear ? { fiscalYear: body.fiscalYear } : {}),
           ...(body.includePriorYear !== undefined ? { includePriorYear: body.includePriorYear } : {}),
           ...(body.periodStart ? { periodStart: body.periodStart } : {}),
-          ...(body.periodEnd ? { periodEnd: body.periodEnd } : {})
+          ...(body.periodEnd ? { periodEnd: body.periodEnd } : {}),
+          ...(body.updateFiscalConfig !== undefined ? { updateFiscalConfig: body.updateFiscalConfig } : {}),
+          ...(body.updateReforecast !== undefined ? { updateReforecast: body.updateReforecast } : {}),
+          ...(body.reforecastPostMonth ? { reforecastPostMonth: body.reforecastPostMonth } : {})
         },
         {
           attempts: 3,
@@ -250,6 +260,8 @@ export class RentDetailsSyncController {
       integrationSourceId: string;
       propertyId: string;
       budgetYear: number;
+      updateReforecast?: boolean;
+      reforecastPostMonth?: string;
     }
   ): Promise<{
     queued: boolean;
@@ -277,7 +289,9 @@ export class RentDetailsSyncController {
           integrationSourceId: body.integrationSourceId,
           entityName: "Occupancy",
           propertyId: body.propertyId,
-          budgetYear: body.budgetYear
+          budgetYear: body.budgetYear,
+          ...(body.updateReforecast !== undefined ? { updateReforecast: body.updateReforecast } : {}),
+          ...(body.reforecastPostMonth ? { reforecastPostMonth: body.reforecastPostMonth } : {})
         },
         {
           attempts: 3,

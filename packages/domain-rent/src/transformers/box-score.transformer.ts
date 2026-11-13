@@ -610,37 +610,6 @@ export async function transformBoxScoreReport(
       create: monthlyData
     });
 
-    // Update move_ins and move_outs in occupancy_reforecast_details till reforecast_locked_till_month
-    const reportMonthNum = context.reportMonth.getUTCMonth() + 1;
-    if (
-      property.reforecastLockedTillMonth &&
-      reportMonthNum <= property.reforecastLockedTillMonth
-    ) {
-      const occupancyReforecast = await prisma.occupancyReforecast.findUnique({
-        where: {
-          propertyId_year: {
-            propertyId: property.id,
-            year: monthlyData.fiscalYear
-          }
-        },
-        select: { id: true }
-      });
-
-      if (occupancyReforecast) {
-        await prisma.occupancyReforecastDetail.updateMany({
-          where: {
-            reforecastId: occupancyReforecast.id,
-            month: reportMonthNum
-          },
-          data: {
-            moveIns: Math.round(Number(monthlyData.moveIns ?? 0)),
-            moveOuts: Math.round(Number(monthlyData.moveOuts ?? 0)),
-            endingOccUnits: Math.round(Number(monthlyData.occupiedUnits ?? 0))
-          }
-        });
-      }
-    }
-
     await prisma.stagingReportData.update({
       where: { id: input.stagingReportDataId },
       data: {

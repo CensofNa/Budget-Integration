@@ -22,6 +22,8 @@ export interface SyncPropertyJobData extends BaseIntegrationJobData {
   fiscalYears?: string;
   forceTransform?: boolean;
   updateFiscalConfig?: boolean | undefined;
+  updateReforecast?: boolean | undefined;
+  reforecastPostMonth?: string | undefined;
 }
 
 export interface TransformPropertyStagingJobData extends BaseIntegrationJobData {
@@ -90,6 +92,8 @@ export interface SyncReportDataJobData extends BaseIntegrationJobData {
   periodStart?: string | undefined;
   periodEnd?: string | undefined;
   updateFiscalConfig?: boolean | undefined;
+  updateReforecast?: boolean | undefined;
+  reforecastPostMonth?: string | undefined;
 }
 
 export interface TransformReportDataStagingJobData extends BaseIntegrationJobData {
@@ -101,6 +105,8 @@ export interface TransformReportDataStagingJobData extends BaseIntegrationJobDat
   propertyCodes?: string[] | undefined;
   propertyIds?: string[] | undefined;
   fiscalYear?: number | undefined;
+  updateReforecast?: boolean | undefined;
+  reforecastPostMonth?: string | undefined;
 }
 
 export interface SyncGlTreeJobData extends BaseIntegrationJobData {
@@ -138,6 +144,8 @@ export interface ProjectOccupancyFromReportsJobData extends BaseIntegrationJobDa
   entityName: "Occupancy";
   propertyId: string;
   budgetYear: number;
+  updateReforecast?: boolean | undefined;
+  reforecastPostMonth?: string | undefined;
 }
 
 export interface ProjectBudgetActualSnapshotsJobData extends BaseIntegrationJobData {

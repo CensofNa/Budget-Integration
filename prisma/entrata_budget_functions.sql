@@ -52,6 +52,141 @@ BEGIN
       ORDER BY CASE WHEN bs.fiscal_year = p_fiscal_year THEN 0 ELSE 1 END, bs.fiscal_year DESC
       LIMIT 1
     ),
+    property_rehab AS (
+      SELECT 
+        ru.rehab_month,
+        COALESCE(ru.rehab_increase_rent, 0)::numeric AS increase_rent,
+        COALESCE(ru.jan_units, 0) AS u1,
+        COALESCE(ru.feb_units, 0) AS u2,
+        COALESCE(ru.mar_units, 0) AS u3,
+        COALESCE(ru.apr_units, 0) AS u4,
+        COALESCE(ru.may_units, 0) AS u5,
+        COALESCE(ru.jun_units, 0) AS u6,
+        COALESCE(ru.jul_units, 0) AS u7,
+        COALESCE(ru.aug_units, 0) AS u8,
+        COALESCE(ru.sep_units, 0) AS u9,
+        COALESCE(ru.oct_units, 0) AS u10,
+        COALESCE(ru.nov_units, 0) AS u11,
+        COALESCE(ru.dec_units, 0) AS u12
+      FROM public.rehab_units ru
+      JOIN property_info pi ON pi.property_id = ru.property_id
+      JOIN public.properties p ON p.id = pi.property_id
+      WHERE ru.fiscal_year = p_fiscal_year
+        AND p.property_operating_type::text <> 'LEASE_UP'
+    ),
+    rehab_cohorts AS (
+      SELECT 
+        increase_rent,
+        -- Month 1 (Jan): cohorts where start + rehab_month <= 1
+        (CASE WHEN 1 >= 1 + rehab_month THEN u1 ELSE 0 END) AS c1,
+        -- Month 2 (Feb): cohorts where start + rehab_month <= 2
+        (CASE WHEN 2 >= 1 + rehab_month THEN u1 ELSE 0 END +
+         CASE WHEN 2 >= 2 + rehab_month THEN u2 ELSE 0 END) AS c2,
+        -- Month 3 (Mar)
+        (CASE WHEN 3 >= 1 + rehab_month THEN u1 ELSE 0 END +
+         CASE WHEN 3 >= 2 + rehab_month THEN u2 ELSE 0 END +
+         CASE WHEN 3 >= 3 + rehab_month THEN u3 ELSE 0 END) AS c3,
+        -- Month 4 (Apr)
+        (CASE WHEN 4 >= 1 + rehab_month THEN u1 ELSE 0 END +
+         CASE WHEN 4 >= 2 + rehab_month THEN u2 ELSE 0 END +
+         CASE WHEN 4 >= 3 + rehab_month THEN u3 ELSE 0 END +
+         CASE WHEN 4 >= 4 + rehab_month THEN u4 ELSE 0 END) AS c4,
+        -- Month 5 (May)
+        (CASE WHEN 5 >= 1 + rehab_month THEN u1 ELSE 0 END +
+         CASE WHEN 5 >= 2 + rehab_month THEN u2 ELSE 0 END +
+         CASE WHEN 5 >= 3 + rehab_month THEN u3 ELSE 0 END +
+         CASE WHEN 5 >= 4 + rehab_month THEN u4 ELSE 0 END +
+         CASE WHEN 5 >= 5 + rehab_month THEN u5 ELSE 0 END) AS c5,
+        -- Month 6 (Jun)
+        (CASE WHEN 6 >= 1 + rehab_month THEN u1 ELSE 0 END +
+         CASE WHEN 6 >= 2 + rehab_month THEN u2 ELSE 0 END +
+         CASE WHEN 6 >= 3 + rehab_month THEN u3 ELSE 0 END +
+         CASE WHEN 6 >= 4 + rehab_month THEN u4 ELSE 0 END +
+         CASE WHEN 6 >= 5 + rehab_month THEN u5 ELSE 0 END +
+         CASE WHEN 6 >= 6 + rehab_month THEN u6 ELSE 0 END) AS c6,
+        -- Month 7 (Jul)
+        (CASE WHEN 7 >= 1 + rehab_month THEN u1 ELSE 0 END +
+         CASE WHEN 7 >= 2 + rehab_month THEN u2 ELSE 0 END +
+         CASE WHEN 7 >= 3 + rehab_month THEN u3 ELSE 0 END +
+         CASE WHEN 7 >= 4 + rehab_month THEN u4 ELSE 0 END +
+         CASE WHEN 7 >= 5 + rehab_month THEN u5 ELSE 0 END +
+         CASE WHEN 7 >= 6 + rehab_month THEN u6 ELSE 0 END +
+         CASE WHEN 7 >= 7 + rehab_month THEN u7 ELSE 0 END) AS c7,
+        -- Month 8 (Aug)
+        (CASE WHEN 8 >= 1 + rehab_month THEN u1 ELSE 0 END +
+         CASE WHEN 8 >= 2 + rehab_month THEN u2 ELSE 0 END +
+         CASE WHEN 8 >= 3 + rehab_month THEN u3 ELSE 0 END +
+         CASE WHEN 8 >= 4 + rehab_month THEN u4 ELSE 0 END +
+         CASE WHEN 8 >= 5 + rehab_month THEN u5 ELSE 0 END +
+         CASE WHEN 8 >= 6 + rehab_month THEN u6 ELSE 0 END +
+         CASE WHEN 8 >= 7 + rehab_month THEN u7 ELSE 0 END +
+         CASE WHEN 8 >= 8 + rehab_month THEN u8 ELSE 0 END) AS c8,
+        -- Month 9 (Sep)
+        (CASE WHEN 9 >= 1 + rehab_month THEN u1 ELSE 0 END +
+         CASE WHEN 9 >= 2 + rehab_month THEN u2 ELSE 0 END +
+         CASE WHEN 9 >= 3 + rehab_month THEN u3 ELSE 0 END +
+         CASE WHEN 9 >= 4 + rehab_month THEN u4 ELSE 0 END +
+         CASE WHEN 9 >= 5 + rehab_month THEN u5 ELSE 0 END +
+         CASE WHEN 9 >= 6 + rehab_month THEN u6 ELSE 0 END +
+         CASE WHEN 9 >= 7 + rehab_month THEN u7 ELSE 0 END +
+         CASE WHEN 9 >= 8 + rehab_month THEN u8 ELSE 0 END +
+         CASE WHEN 9 >= 9 + rehab_month THEN u9 ELSE 0 END) AS c9,
+        -- Month 10 (Oct)
+        (CASE WHEN 10 >= 1 + rehab_month THEN u1 ELSE 0 END +
+         CASE WHEN 10 >= 2 + rehab_month THEN u2 ELSE 0 END +
+         CASE WHEN 10 >= 3 + rehab_month THEN u3 ELSE 0 END +
+         CASE WHEN 10 >= 4 + rehab_month THEN u4 ELSE 0 END +
+         CASE WHEN 10 >= 5 + rehab_month THEN u5 ELSE 0 END +
+         CASE WHEN 10 >= 6 + rehab_month THEN u6 ELSE 0 END +
+         CASE WHEN 10 >= 7 + rehab_month THEN u7 ELSE 0 END +
+         CASE WHEN 10 >= 8 + rehab_month THEN u8 ELSE 0 END +
+         CASE WHEN 10 >= 9 + rehab_month THEN u9 ELSE 0 END +
+         CASE WHEN 10 >= 10 + rehab_month THEN u10 ELSE 0 END) AS c10,
+        -- Month 11 (Nov)
+        (CASE WHEN 11 >= 1 + rehab_month THEN u1 ELSE 0 END +
+         CASE WHEN 11 >= 2 + rehab_month THEN u2 ELSE 0 END +
+         CASE WHEN 11 >= 3 + rehab_month THEN u3 ELSE 0 END +
+         CASE WHEN 11 >= 4 + rehab_month THEN u4 ELSE 0 END +
+         CASE WHEN 11 >= 5 + rehab_month THEN u5 ELSE 0 END +
+         CASE WHEN 11 >= 6 + rehab_month THEN u6 ELSE 0 END +
+         CASE WHEN 11 >= 7 + rehab_month THEN u7 ELSE 0 END +
+         CASE WHEN 11 >= 8 + rehab_month THEN u8 ELSE 0 END +
+         CASE WHEN 11 >= 9 + rehab_month THEN u9 ELSE 0 END +
+         CASE WHEN 11 >= 10 + rehab_month THEN u10 ELSE 0 END +
+         CASE WHEN 11 >= 11 + rehab_month THEN u11 ELSE 0 END) AS c11,
+        -- Month 12 (Dec)
+        (CASE WHEN 12 >= 1 + rehab_month THEN u1 ELSE 0 END +
+         CASE WHEN 12 >= 2 + rehab_month THEN u2 ELSE 0 END +
+         CASE WHEN 12 >= 3 + rehab_month THEN u3 ELSE 0 END +
+         CASE WHEN 12 >= 4 + rehab_month THEN u4 ELSE 0 END +
+         CASE WHEN 12 >= 5 + rehab_month THEN u5 ELSE 0 END +
+         CASE WHEN 12 >= 6 + rehab_month THEN u6 ELSE 0 END +
+         CASE WHEN 12 >= 7 + rehab_month THEN u7 ELSE 0 END +
+         CASE WHEN 12 >= 8 + rehab_month THEN u8 ELSE 0 END +
+         CASE WHEN 12 >= 9 + rehab_month THEN u9 ELSE 0 END +
+         CASE WHEN 12 >= 10 + rehab_month THEN u10 ELSE 0 END +
+         CASE WHEN 12 >= 11 + rehab_month THEN u11 ELSE 0 END +
+         CASE WHEN 12 >= 12 + rehab_month THEN u12 ELSE 0 END) AS c12
+      FROM property_rehab
+    ),
+    rehab_lift_aggregated AS (
+      SELECT 
+        '41100'::varchar AS account_code,
+        COALESCE(SUM(c1 * increase_rent), 0) AS jan_amount,
+        COALESCE(SUM(c2 * increase_rent), 0) AS feb_amount,
+        COALESCE(SUM(c3 * increase_rent), 0) AS mar_amount,
+        COALESCE(SUM(c4 * increase_rent), 0) AS apr_amount,
+        COALESCE(SUM(c5 * increase_rent), 0) AS may_amount,
+        COALESCE(SUM(c6 * increase_rent), 0) AS jun_amount,
+        COALESCE(SUM(c7 * increase_rent), 0) AS jul_amount,
+        COALESCE(SUM(c8 * increase_rent), 0) AS aug_amount,
+        COALESCE(SUM(c9 * increase_rent), 0) AS sep_amount,
+        COALESCE(SUM(c10 * increase_rent), 0) AS oct_amount,
+        COALESCE(SUM(c11 * increase_rent), 0) AS nov_amount,
+        COALESCE(SUM(c12 * increase_rent), 0) AS dec_amount,
+        COALESCE(SUM((c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8 + c9 + c10 + c11 + c12) * increase_rent), 0) AS full_year_amount
+      FROM rehab_cohorts
+    ),
     calc_lines_aggregated AS (
       SELECT 
         COALESCE(root_coa.account_code, bcl.account_code) AS account_code,
@@ -113,12 +248,20 @@ BEGIN
     ),
     property_coa AS (
       -- 1. OPERATING: standard P&L accounts via fn_get_coa_for_property (respects template exclusions)
+      -- Map to default COA when a template override exists so Entrata receives the default GL account
       SELECT 
-        coa.coa_id,
-        coa.account_code,
-        coa.account_name
+        COALESCE(root_coa.coa_id, coa.coa_id) AS coa_id,
+        COALESCE(root_coa.account_code, coa.account_code) AS account_code,
+        COALESCE(root_coa.account_name, coa.account_name) AS account_name
       FROM property_info pi
       CROSS JOIN LATERAL public.fn_get_coa_for_property(pi.company_id, pi.organisation_id, pi.property_id, NULL) coa
+      LEFT JOIN public.coa_template_overrides cto 
+        ON cto.template_id = pi.coa_template_id 
+       AND (cto.coa_id = coa.coa_id OR cto.account_code = coa.account_code)
+       AND cto.is_active = true
+       AND cto.mapped_default_coa_id IS NOT NULL
+      LEFT JOIN public.chart_of_accounts root_coa 
+        ON root_coa.coa_id = cto.mapped_default_coa_id
       WHERE upper(p_budget_scope) = 'OPERATING'
         AND coa.head_name IN ('Income', 'Operating Expenses', 'Non Operating Income/Expenses')
 
@@ -173,35 +316,36 @@ BEGIN
         pcoa.account_code,
         COALESCE(ga.account_name, pcoa.account_name) AS account_name,
         ga.source_gl_account_id,
-        (COALESCE(cla.jan_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.jan_amount, 0) ELSE 0 END) AS jan_amount,
-        (COALESCE(cla.feb_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.feb_amount, 0) ELSE 0 END) AS feb_amount,
-        (COALESCE(cla.mar_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.mar_amount, 0) ELSE 0 END) AS mar_amount,
-        (COALESCE(cla.apr_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.apr_amount, 0) ELSE 0 END) AS apr_amount,
-        (COALESCE(cla.may_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.may_amount, 0) ELSE 0 END) AS may_amount,
-        (COALESCE(cla.jun_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.jun_amount, 0) ELSE 0 END) AS jun_amount,
-        (COALESCE(cla.jul_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.jul_amount, 0) ELSE 0 END) AS jul_amount,
-        (COALESCE(cla.aug_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.aug_amount, 0) ELSE 0 END) AS aug_amount,
-        (COALESCE(cla.sep_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.sep_amount, 0) ELSE 0 END) AS sep_amount,
-        (COALESCE(cla.oct_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.oct_amount, 0) ELSE 0 END) AS oct_amount,
-        (COALESCE(cla.nov_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.nov_amount, 0) ELSE 0 END) AS nov_amount,
-        (COALESCE(cla.dec_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.dec_amount, 0) ELSE 0 END) AS dec_amount,
+        (COALESCE(cla.jan_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.jan_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.jan_amount, 0) ELSE 0 END) AS jan_amount,
+        (COALESCE(cla.feb_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.feb_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.feb_amount, 0) ELSE 0 END) AS feb_amount,
+        (COALESCE(cla.mar_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.mar_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.mar_amount, 0) ELSE 0 END) AS mar_amount,
+        (COALESCE(cla.apr_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.apr_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.apr_amount, 0) ELSE 0 END) AS apr_amount,
+        (COALESCE(cla.may_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.may_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.may_amount, 0) ELSE 0 END) AS may_amount,
+        (COALESCE(cla.jun_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.jun_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.jun_amount, 0) ELSE 0 END) AS jun_amount,
+        (COALESCE(cla.jul_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.jul_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.jul_amount, 0) ELSE 0 END) AS jul_amount,
+        (COALESCE(cla.aug_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.aug_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.aug_amount, 0) ELSE 0 END) AS aug_amount,
+        (COALESCE(cla.sep_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.sep_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.sep_amount, 0) ELSE 0 END) AS sep_amount,
+        (COALESCE(cla.oct_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.oct_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.oct_amount, 0) ELSE 0 END) AS oct_amount,
+        (COALESCE(cla.nov_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.nov_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.nov_amount, 0) ELSE 0 END) AS nov_amount,
+        (COALESCE(cla.dec_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.dec_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.dec_amount, 0) ELSE 0 END) AS dec_amount,
         (
-          (COALESCE(cla.jan_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.jan_amount, 0) ELSE 0 END) +
-          (COALESCE(cla.feb_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.feb_amount, 0) ELSE 0 END) +
-          (COALESCE(cla.mar_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.mar_amount, 0) ELSE 0 END) +
-          (COALESCE(cla.apr_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.apr_amount, 0) ELSE 0 END) +
-          (COALESCE(cla.may_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.may_amount, 0) ELSE 0 END) +
-          (COALESCE(cla.jun_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.jun_amount, 0) ELSE 0 END) +
-          (COALESCE(cla.jul_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.jul_amount, 0) ELSE 0 END) +
-          (COALESCE(cla.aug_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.aug_amount, 0) ELSE 0 END) +
-          (COALESCE(cla.sep_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.sep_amount, 0) ELSE 0 END) +
-          (COALESCE(cla.oct_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.oct_amount, 0) ELSE 0 END) +
-          (COALESCE(cla.nov_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.nov_amount, 0) ELSE 0 END) +
-          (COALESCE(cla.dec_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.dec_amount, 0) ELSE 0 END)
+          (COALESCE(cla.jan_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.jan_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.jan_amount, 0) ELSE 0 END) +
+          (COALESCE(cla.feb_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.feb_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.feb_amount, 0) ELSE 0 END) +
+          (COALESCE(cla.mar_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.mar_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.mar_amount, 0) ELSE 0 END) +
+          (COALESCE(cla.apr_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.apr_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.apr_amount, 0) ELSE 0 END) +
+          (COALESCE(cla.may_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.may_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.may_amount, 0) ELSE 0 END) +
+          (COALESCE(cla.jun_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.jun_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.jun_amount, 0) ELSE 0 END) +
+          (COALESCE(cla.jul_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.jul_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.jul_amount, 0) ELSE 0 END) +
+          (COALESCE(cla.aug_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.aug_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.aug_amount, 0) ELSE 0 END) +
+          (COALESCE(cla.sep_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.sep_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.sep_amount, 0) ELSE 0 END) +
+          (COALESCE(cla.oct_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.oct_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.oct_amount, 0) ELSE 0 END) +
+          (COALESCE(cla.nov_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.nov_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.nov_amount, 0) ELSE 0 END) +
+          (COALESCE(cla.dec_amount, 0) + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(plaa.dec_amount, 0) ELSE 0 END + CASE WHEN upper(p_budget_scope) IN ('OPERATING', 'ALL') THEN COALESCE(rla.dec_amount, 0) ELSE 0 END)
         ) AS full_year_amount
       FROM property_coa pcoa
       LEFT JOIN calc_lines_aggregated cla ON cla.account_code = pcoa.account_code
       LEFT JOIN profit_loss_adjustments_aggregated plaa ON plaa.account_code = pcoa.account_code
+      LEFT JOIN rehab_lift_aggregated rla ON rla.account_code = pcoa.account_code
       LEFT JOIN LATERAL (
         SELECT ga_inner.source_gl_account_id, ga_inner.account_name
         FROM public.gl_accounts ga_inner
