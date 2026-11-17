@@ -4,6 +4,8 @@ export interface ProjectOccupancyFromReportsInput {
     integrationSourceId: string;
     propertyId: string;
     budgetYear: number;
+    updateReforecast?: boolean;
+    reforecastPostMonth?: string;
 }
 export declare function projectOccupancyFromReportsJob(input: ProjectOccupancyFromReportsInput): Promise<{
     projectedRows: number;

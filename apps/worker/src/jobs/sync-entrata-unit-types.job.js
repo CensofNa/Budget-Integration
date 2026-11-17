@@ -82,8 +82,8 @@ export async function syncEntrataUnitTypesJob(input = {}) {
     if (!orgSlug) {
         throw new Error("Entrata orgSlug missing in IntegrationSourceConfig.connectionJson.");
     }
-    const propertyBatchSize = input.propertyBatchSize ??
-        getNumberFromJson(syncSettings?.propertyBatchSize, 10);
+    // Entrata's getUnitTypes API takes a single propertyId per request.
+    const propertyBatchSize = 1;
     const propertyMaps = await prisma.sourceRecordMap.findMany({
         where: {
             companyId: source.companyId,

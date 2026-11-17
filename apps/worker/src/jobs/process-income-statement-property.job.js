@@ -2,6 +2,26 @@ import { prisma } from "@budget-integration/database";
 import { stageIncomeStatementActualsJob } from "./stage-income-statement-actuals.job.js";
 import { transformIncomeStatementActualsJob } from "./transform-income-statement-actuals.job.js";
 import { projectIncomeStatementActualsJob } from "./project-income-statement-actuals.job.js";
+function parseMonthNumber(monthStr) {
+    if (!monthStr)
+        return null;
+    const trimmed = monthStr.trim();
+    const yyyyMmMatch = trimmed.match(/^\d{4}-(\d{1,2})/);
+    if (yyyyMmMatch && yyyyMmMatch[1]) {
+        const m = parseInt(yyyyMmMatch[1], 10);
+        return m >= 1 && m <= 12 ? m : null;
+    }
+    const mmYyyyMatch = trimmed.match(/^(\d{1,2})\/\d{4}/);
+    if (mmYyyyMatch && mmYyyyMatch[1]) {
+        const m = parseInt(mmYyyyMatch[1], 10);
+        return m >= 1 && m <= 12 ? m : null;
+    }
+    const singleNum = parseInt(trimmed, 10);
+    if (!Number.isNaN(singleNum) && singleNum >= 1 && singleNum <= 12) {
+        return singleNum;
+    }
+    return null;
+}
 export async function processIncomeStatementPropertyJob(data) {
     console.log("[INFO] processIncomeStatementPropertyJob starting.", {
         companyId: data.companyId,
@@ -10,6 +30,16 @@ export async function processIncomeStatementPropertyJob(data) {
         sourcePropertyId: data.sourcePropertyId,
         fiscalYear: data.fiscalYear
     });
+    await prisma.integrationPropertyProcessRun.updateMany({
+        where: {
+            syncRunId: data.syncRunId,
+            sourcePropertyId: data.sourcePropertyId,
+        },
+        data: {
+            status: "PROCESSING",
+            startedAt: new Date(),
+        },
+    }).catch(() => undefined);
     // 1. Resolve the reportLogId from the api log table
     const log = await prisma.integrationReportApiLog.findFirst({
         where: {
@@ -34,6 +64,16 @@ export async function processIncomeStatementPropertyJob(data) {
         entityName: "IncomeStatementActuals"
     });
     console.log("[INFO] Staging completed successfully.", stageResult);
+    await prisma.integrationPropertyProcessRun.updateMany({
+        where: {
+            syncRunId: data.syncRunId,
+            sourcePropertyId: data.sourcePropertyId,
+        },
+        data: {
+            transformStatus: "STAGED",
+            rowsProcessed: stageResult.rowsInsertedOrUpdated,
+        },
+    }).catch(() => undefined);
     // 3. Transform the staged report data
     const transformResult = await transformIncomeStatementActualsJob({
         companyId: data.companyId,
@@ -44,6 +84,16 @@ export async function processIncomeStatementPropertyJob(data) {
         autoProject: false
     });
     console.log("[INFO] Transformation completed successfully.", transformResult);
+    await prisma.integrationPropertyProcessRun.updateMany({
+        where: {
+            syncRunId: data.syncRunId,
+            sourcePropertyId: data.sourcePropertyId,
+        },
+        data: {
+            transformStatus: "TRANSFORMED",
+            actualRowsUpserted: transformResult.insertedCount + transformResult.updatedCount,
+        },
+    }).catch(() => undefined);
     // 4. Project the actuals
     const projectResult = await projectIncomeStatementActualsJob({
         companyId: data.companyId,
@@ -54,97 +104,19 @@ export async function processIncomeStatementPropertyJob(data) {
         ...(data.propertyId ? { propertyId: data.propertyId } : {})
     });
     console.log("[INFO] Projection completed successfully.", projectResult);
-    // Post-projection fix: align coaId and accountGroup on the projected ACTUALS lines using fn_get_coa_for_property
-    if (data.propertyId) {
-        console.log("[INFO] Starting post-projection coa_id and accountGroup alignment for ACTUALS...");
-        const propertyId = data.propertyId;
-        const actualsSnapshots = await prisma.budgetSnapshot.findMany({
-            where: {
-                propertyId,
-                snapshotType: "ACTUALS"
-            },
-            select: {
-                snapshotId: true
-            }
-        });
-        for (const snap of actualsSnapshots) {
-            const coaAccounts = await prisma.$queryRaw `
-        SELECT coa_id, account_code, group_name 
-        FROM public.fn_get_coa_for_property(
-          ${data.companyId}::uuid, 
-          ${data.organisationId}::uuid, 
-          ${propertyId}::uuid
-        )
-      `;
-            const coaMap = new Map();
-            for (const coa of coaAccounts) {
-                coaMap.set(coa.account_code, {
-                    id: coa.coa_id,
-                    groupName: coa.group_name ?? ""
-                });
-            }
-            const lines = await prisma.budgetCalcLine.findMany({
-                where: {
-                    snapshotId: snap.snapshotId
-                },
-                select: {
-                    calcLineId: true,
-                    accountCode: true
-                }
-            });
-            for (const line of lines) {
-                if (!line.accountCode) {
-                    continue;
-                }
-                const coaInfo = coaMap.get(line.accountCode);
-                if (coaInfo) {
-                    await prisma.budgetCalcLine.update({
-                        where: {
-                            calcLineId: line.calcLineId
-                        },
-                        data: {
-                            coaId: coaInfo.id,
-                            accountGroup: coaInfo.groupName
-                        }
-                    });
-                }
-                else {
-                    await prisma.budgetCalcLine.update({
-                        where: {
-                            calcLineId: line.calcLineId
-                        },
-                        data: {
-                            coaId: null,
-                            accountGroup: null
-                        }
-                    });
-                }
-            }
-        }
-        console.log("[INFO] Post-projection alignment completed successfully.");
-    }
-    // 4.5 If updateReforecast is true, sync projected actuals to REFORECAST with the cutoff month
-    if (data.updateReforecast && data.propertyId) {
-        const cutoffMonth = data.reforecastCutoffMonth ?? "2026-06";
-        console.log(`[INFO] Syncing actuals to REFORECAST for property ${data.propertyId} with cutoff month: ${cutoffMonth}...`);
-        try {
-            await prisma.$queryRawUnsafe(`
-        SELECT * FROM public.fn_sync_actuals_to_reforecast(
-          \${data.companyId}::uuid,
-          \${data.organisationId}::uuid,
-          \${data.propertyId}::uuid,
-          \${data.fiscalYear}::integer,
-          null::uuid,
-          \${cutoffMonth}::varchar
-        )
-      `);
-            console.log("[INFO] REFORECAST sync completed successfully.");
-        }
-        catch (reforecastError) {
-            console.error("[ERROR] Failed to sync actuals to REFORECAST:", reforecastError);
-        }
-    }
-    // 4.6 Reset isGlLockedChanged on propertyClosingStatus once actuals are processed
+    await prisma.integrationPropertyProcessRun.updateMany({
+        where: {
+            syncRunId: data.syncRunId,
+            sourcePropertyId: data.sourcePropertyId,
+        },
+        data: {
+            status: "COMPLETED",
+            projectStatus: "PROJECTED",
+            calcLinesUpserted: (projectResult?.results?.[0]?.calcLinesUpserted) ?? 0,
+            completedAt: new Date(),
+        },
+    }).catch(() => undefined);
+    // 4.6 Resolve propertyId if not already provided
     const extId = data.propertyCode ? Number(data.propertyCode) : NaN;
     const resolvedPropertyId = data.propertyId ?? (data.propertyCode ? (await prisma.property.findFirst({
         where: {
@@ -157,36 +129,98 @@ export async function processIncomeStatementPropertyJob(data) {
         },
         select: { id: true }
     }))?.id : undefined);
-    if (resolvedPropertyId) {
+    const targetPropertyId = data.propertyId ?? resolvedPropertyId;
+    // 4.5 If updateReforecast is true, sync projected actuals to REFORECAST with the cutoff month
+    // and update property.reforecast_locked_till_month within a single transaction
+    const shouldUpdateReforecast = data.updateReforecast === true ||
+        (data.updateReforecast !== false && Boolean(data.reforecastCutoffMonth));
+    if (shouldUpdateReforecast && targetPropertyId) {
+        const rawCutoff = data.reforecastCutoffMonth ?? "2026-06";
+        const cutoffMonth = rawCutoff.length > 7 && rawCutoff.includes("-") ? rawCutoff.slice(0, 7) : rawCutoff;
+        const lockedMonthNumber = parseMonthNumber(rawCutoff);
+        console.log(`[INFO] Syncing actuals to REFORECAST and updating reforecast_locked_till_month for property ${targetPropertyId} (cutoffMonth: ${cutoffMonth}, lockedMonth: ${lockedMonthNumber})...`);
         try {
+            await prisma.$transaction(async (tx) => {
+                // Step 1: Execute fn_sync_actuals_to_reforecast
+                await tx.$queryRawUnsafe(`
+          SELECT * FROM public.fn_sync_actuals_to_reforecast(
+            $1::uuid,
+            $2::uuid,
+            $3::uuid,
+            $4::integer,
+            null::uuid,
+            $5::varchar
+          )
+        `, data.companyId, data.organisationId, targetPropertyId, data.fiscalYear, cutoffMonth);
+                // Step 2: Update reforecast_locked_till_month on property
+                if (lockedMonthNumber !== null) {
+                    await tx.property.update({
+                        where: { id: targetPropertyId },
+                        data: {
+                            reforecastLockedTillMonth: lockedMonthNumber,
+                            updatedAt: new Date(),
+                        },
+                    });
+                    console.log(`[INFO] Successfully updated property ${targetPropertyId} reforecastLockedTillMonth to ${lockedMonthNumber}`);
+                }
+            });
+            console.log("[INFO] REFORECAST sync and lock transaction completed successfully.");
+        }
+        catch (reforecastError) {
+            console.error("[ERROR] Failed to sync actuals to REFORECAST / update reforecast_locked_till_month in transaction:", reforecastError);
+        }
+    }
+    // Reset isGlLockedChanged on propertyClosingStatus once actuals are processed
+    try {
+        const orConditions = [];
+        if (resolvedPropertyId)
+            orConditions.push({ propertyId: resolvedPropertyId });
+        if (data.sourcePropertyId)
+            orConditions.push({ sourceRecordId: data.sourcePropertyId });
+        if (data.propertyCode)
+            orConditions.push({ sourceRecordId: data.propertyCode });
+        if (orConditions.length > 0) {
             await prisma.propertyClosingStatus.updateMany({
                 where: {
-                    propertyId: resolvedPropertyId,
+                    companyId: data.companyId,
+                    organisationId: data.organisationId,
                     isGlLockedChanged: true,
+                    OR: orConditions,
                 },
                 data: {
                     isGlLockedChanged: false,
+                    ...(resolvedPropertyId ? { propertyId: resolvedPropertyId } : {}),
                 },
             });
-            console.log(`[INFO] Reset isGlLockedChanged to false for property ${resolvedPropertyId}`);
-        }
-        catch (resetErr) {
-            console.error("[WARN] Failed to reset isGlLockedChanged on propertyClosingStatus:", resetErr);
+            console.log(`[INFO] Reset isGlLockedChanged to false for property (id: ${resolvedPropertyId ?? "null"}, sourcePropertyId: ${data.sourcePropertyId})`);
         }
     }
-    // 5. Update the IntegrationSyncRun status to COMPLETED
-    await prisma.integrationSyncRun.update({
+    catch (resetErr) {
+        console.error("[WARN] Failed to reset isGlLockedChanged on propertyClosingStatus:", resetErr);
+    }
+    // Check if all properties for this syncRun are finished; if so, update IntegrationSyncRun
+    const pendingOrProcessingCount = await prisma.integrationPropertyProcessRun.count({
         where: {
-            id: data.syncRunId
+            syncRunId: data.syncRunId,
+            status: { in: ["PENDING", "QUEUED", "PROCESSING"] },
         },
-        data: {
-            status: "COMPLETED",
-            recordsProcessed: stageResult.rowsInsertedOrUpdated + stageResult.rowsSkipped,
-            recordsFailed: 0,
-            completedAt: new Date()
-        }
     });
-    console.log(`[INFO] Sync Run ${data.syncRunId} status set to COMPLETED.`);
+    if (pendingOrProcessingCount === 0) {
+        const failedRuns = await prisma.integrationPropertyProcessRun.count({
+            where: {
+                syncRunId: data.syncRunId,
+                status: "FAILED",
+            },
+        });
+        await prisma.integrationSyncRun.update({
+            where: { id: data.syncRunId },
+            data: {
+                status: failedRuns > 0 ? "PARTIAL_FAILED" : "COMPLETED",
+                completedAt: new Date(),
+            },
+        }).catch(() => undefined);
+        console.log(`[INFO] All properties processed. Sync Run ${data.syncRunId} marked COMPLETED.`);
+    }
     return {
         stage: stageResult,
         transform: transformResult,

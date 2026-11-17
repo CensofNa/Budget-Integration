@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
-import { transformEntrataUnitType } from "@budget-integration/integration-core";
+import { transformEntrataUnitType } from "@budget-integration/domain-property";
 export async function transformStagedUnitTypesJob(input = {}) {
     const batchSize = input.batchSize ?? 50;
     let totalTransformed = 0;

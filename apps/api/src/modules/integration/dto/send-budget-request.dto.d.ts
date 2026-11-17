@@ -7,17 +7,24 @@ export declare class SendBudgetRequestDto {
     dryRun?: boolean;
     applyLatestChangeset?: boolean;
     budgetName?: string;
+    budgetScope?: "OPERATING" | "CAPEX" | "ALL";
 }
 export declare class UpdateBudgetRequestDto extends SendBudgetRequestDto {
     budgetId?: string;
 }
 export interface SendBudgetResponse {
     success: boolean;
+    operation?: "CREATE" | "UPDATE";
     dryRun?: boolean;
     message: string;
+    budgetScope?: "OPERATING" | "CAPEX" | "ALL" | string;
     property: {
         id: string;
         propertyCode: string;
+        propertyName: string;
+    };
+    targetEntrataProperty?: {
+        propertyId: string;
         propertyName: string;
     };
     maskedEntrataProperty?: {

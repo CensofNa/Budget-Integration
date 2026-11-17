@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
 import { EntrataReportsConnector } from "@budget-integration/connector-entrata";
+import { resolveSystemAdminUserId } from "@budget-integration/integration-core";
 export function resolveBudgetReportYears(input) {
     const currentCalYear = new Date().getUTCFullYear();
     let referenceFiscalYear;
@@ -34,7 +35,7 @@ const MONTH_NAME_MAP = {
     jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
     jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
 };
-async function updatePropertyFiscalConfigFromReportPayload(propertyId, responsePayload, targetBudgetYear) {
+export async function updatePropertyFiscalConfigFromReportPayload(propertyId, responsePayload, explicitTargetBudgetYear) {
     try {
         const results = responsePayload?.response?.result;
         if (!Array.isArray(results) || results.length === 0)
@@ -56,7 +57,7 @@ async function updatePropertyFiscalConfigFromReportPayload(propertyId, responseP
         }
         if (budgetRows.length === 0)
             return;
-        const sampleRow = budgetRows.find((row) => Object.keys(row).some((key) => /^[a-z]{3}_\d{4}$/i.test(key)));
+        const sampleRow = budgetRows.find((row) => row && typeof row === "object" && Object.keys(row).some((key) => /^[a-z]{3}_\d{4}$/i.test(key)));
         if (!sampleRow)
             return;
         const monthKeys = Object.keys(sampleRow).filter((key) => /^[a-z]{3}_\d{4}$/i.test(key));
@@ -82,10 +83,10 @@ async function updatePropertyFiscalConfigFromReportPayload(propertyId, responseP
         const lastMonth = parsedMonths[parsedMonths.length - 1];
         const startMonth = firstMonth.month;
         const endMonth = lastMonth.month;
-        // The budget from Entrata (e.g. 2026) is the reference point for creating the budget for targetBudgetYear (e.g. 2027).
-        // The property's fiscal year start/end dates are saved for targetBudgetYear.
-        const targetStartYear = targetBudgetYear;
-        const targetEndYear = endMonth < startMonth ? targetBudgetYear + 1 : targetBudgetYear;
+        const targetStartYear = explicitTargetBudgetYear ?? firstMonth.year;
+        const targetEndYear = explicitTargetBudgetYear
+            ? (endMonth < startMonth ? explicitTargetBudgetYear + 1 : explicitTargetBudgetYear)
+            : lastMonth.year;
         const fiscalStartDate = new Date(Date.UTC(targetStartYear, startMonth - 1, 1));
         const fiscalEndDate = new Date(Date.UTC(targetEndYear, endMonth, 0));
         const budgetYearType = (startMonth === 1 ? "CALENDAR_YEAR" : "FISCAL_YEAR");
@@ -100,7 +101,7 @@ async function updatePropertyFiscalConfigFromReportPayload(propertyId, responseP
                 fiscalYearEndDate: true,
             },
         });
-        const isSame = currentProp?.budgetYear === targetBudgetYear &&
+        const isSame = currentProp?.budgetYear === targetStartYear &&
             currentProp?.budgetYearType === budgetYearType &&
             currentProp?.fiscalYearStartMonth === startMonth &&
             currentProp?.fiscalYearEndMonth === endMonth &&
@@ -108,22 +109,25 @@ async function updatePropertyFiscalConfigFromReportPayload(propertyId, responseP
             currentProp?.fiscalYearEndDate?.toISOString().slice(0, 10) === fiscalEndDate.toISOString().slice(0, 10);
         if (isSame) {
             console.log(`[SyncBudgetReportJob] Property ${propertyId} fiscal config is unchanged ` +
-                `(${budgetYearType}, targetYear=${targetBudgetYear}, start=${startMonth}, end=${endMonth}). Skipping update.`);
+                `(${budgetYearType}, budgetYear=${targetStartYear}, start=${startMonth}, end=${endMonth}). Skipping update.`);
             return;
         }
         console.log(`[SyncBudgetReportJob] Updating Property ${propertyId} fiscal config: ` +
-            `budgetYear=${targetBudgetYear}, type=${budgetYearType}, ` +
+            `budgetYear=${targetStartYear}, type=${budgetYearType}, ` +
             `start=${startMonth}/${targetStartYear} (${fiscalStartDate.toISOString().split("T")[0]}), ` +
             `end=${endMonth}/${targetEndYear} (${fiscalEndDate.toISOString().split("T")[0]})`);
+        const systemAdminUserId = await resolveSystemAdminUserId(prisma);
         await prisma.property.update({
             where: { id: propertyId },
             data: {
-                budgetYear: targetBudgetYear,
+                budgetYear: targetStartYear,
                 budgetYearType,
                 fiscalYearStartMonth: startMonth,
                 fiscalYearEndMonth: endMonth,
                 fiscalYearStartDate: fiscalStartDate,
                 fiscalYearEndDate: fiscalEndDate,
+                updatedSource: "ENTRATA",
+                ...(systemAdminUserId ? { updatedBy: systemAdminUserId } : {}),
             },
         });
     }
@@ -149,17 +153,21 @@ export async function syncEntrataBudgetReportJob(data) {
     const syncRunId = randomUUID();
     const ownerFilter = data.ownerFilter ?? "all";
     const { referenceFiscalYear, targetBudgetYear } = resolveBudgetReportYears(data);
+    const targetCodes = data.propertyCodes ?? data.propertyIds;
+    const balanceSheetAccountsStr = data.balanceSheetAccounts ? "1" : "0";
     console.log(`================================================================================`);
     console.log(`[SyncBudgetReportJob] Starting sync run ${syncRunId}`);
-    console.log(`  Budget Type        : ${data.budgetType ?? "NONE"}`);
-    console.log(`  Reference FY       : ${referenceFiscalYear}`);
-    console.log(`  Target Budget Year : ${targetBudgetYear}`);
-    console.log(`  Owner Filter       : ${ownerFilter}`);
-    console.log(`  Target Property IDs: ${data.propertyIds?.length ? data.propertyIds.join(", ") : "ALL"}`);
-    console.log(`  GL Tree ID Override: ${data.glTreeId ?? "NONE (Auto: 1913 for Livano, 1812 for Non-Livano)"}`);
-    console.log(`  GL Book IDs        : ${data.glBookIds?.length ? JSON.stringify(data.glBookIds) : "DEFAULT"}`);
-    console.log(`  Auto Process       : ${data.autoProcess ?? false}`);
+    console.log(`  Budget Type            : ${data.budgetType ?? "NONE"}`);
+    console.log(`  Reference FY           : ${referenceFiscalYear}`);
+    console.log(`  Target Budget Year     : ${targetBudgetYear}`);
+    console.log(`  Owner Filter           : ${ownerFilter}`);
+    console.log(`  Target Properties      : ${targetCodes?.length ? targetCodes.join(", ") : "ALL"}`);
+    console.log(`  Balance Sheet Accounts : ${balanceSheetAccountsStr}`);
+    console.log(`  GL Tree ID Override    : ${data.glTreeId ?? "NONE (Auto: 1913 for Livano, 1812 for Non-Livano)"}`);
+    console.log(`  GL Book IDs            : ${data.glBookIds?.length ? JSON.stringify(data.glBookIds) : "DEFAULT"}`);
+    console.log(`  Auto Process           : ${data.autoProcess ?? false}`);
     console.log(`================================================================================`);
+    data.onProgress?.(`[INFO] Starting Entrata Budget Report sync (syncRunId: ${syncRunId}, FY: ${referenceFiscalYear}, targetBudgetYear: ${targetBudgetYear}, balanceSheetAccounts: ${balanceSheetAccountsStr})...`);
     // 1. Resolve properties based on owner filter
     const propWhere = {
         companyId: data.companyId,
@@ -177,12 +185,12 @@ export async function syncEntrataBudgetReportJob(data) {
             { name: { not: { contains: "Livano", mode: "insensitive" } } },
         ];
     }
-    if (data.propertyIds && data.propertyIds.length > 0) {
-        const numericIds = data.propertyIds
+    if (targetCodes && targetCodes.length > 0) {
+        const numericIds = targetCodes
             .map((id) => Number.parseInt(id, 10))
             .filter((n) => Number.isInteger(n) && n > 0);
         const propertyFilterConditions = [
-            { code: { in: data.propertyIds } },
+            { code: { in: targetCodes } },
         ];
         if (numericIds.length > 0) {
             propertyFilterConditions.push({ externalId: { in: numericIds } });
@@ -198,7 +206,9 @@ export async function syncEntrataBudgetReportJob(data) {
         where: propWhere,
         select: { id: true, code: true, externalId: true, name: true, ownerName: true },
     });
-    console.log(`[SyncBudgetReportJob] Resolved ${properties.length} target property(ies) from database.`);
+    const propCountMsg = `[INFO] Resolved ${properties.length} target property candidate(s) for Budget Report sync.`;
+    console.log(`[SyncBudgetReportJob] ${propCountMsg}`);
+    data.onProgress?.(propCountMsg);
     const reportLogIds = [];
     // 2. Load Entrata Integration Source config & credentials if source is available
     const source = await prisma.integrationSource.findFirst({
@@ -226,12 +236,17 @@ export async function syncEntrataBudgetReportJob(data) {
         }
         if (orgSlug && apiKey) {
             const connector = new EntrataReportsConnector({ baseUrl, orgSlug, minDelayMs: 1200 }, { apiKey });
-            for (const property of properties) {
+            for (let idx = 0; idx < properties.length; idx++) {
+                const property = properties[idx];
+                if (!property)
+                    continue;
                 const reportLogId = randomUUID();
                 const requestId = String(Date.now());
                 const sourcePropertyId = property.externalId ? String(property.externalId) : (property.code ?? "");
                 const glTreeId = resolveGlTreeIdForProperty(property, data.glTreeId);
-                console.log(`[SyncBudgetReportJob] Calling Entrata getReportData for property ${sourcePropertyId} (${property.name ?? "Unknown"}) [gl_tree_ids: ${glTreeId}]...`);
+                const callMsg = `[INFO] [${idx + 1}/${properties.length}] Calling Entrata getReportData - budget for ${property.name ?? "Unknown"} (code: ${sourcePropertyId}, glTreeId: ${glTreeId}, balanceSheetAccounts: ${balanceSheetAccountsStr})...`;
+                console.log(`[SyncBudgetReportJob] ${callMsg}`);
+                data.onProgress?.(callMsg);
                 const requestPayload = {
                     requestId,
                     reportName: "budget",
@@ -244,7 +259,7 @@ export async function syncEntrataBudgetReportJob(data) {
                         budget_status: data.budgetStatus ?? "3",
                         fiscal_year: String(referenceFiscalYear),
                         budget_ids: "all",
-                        balance_sheet_accounts: "0",
+                        balance_sheet_accounts: balanceSheetAccountsStr,
                         include_zero_balance: data.includeZeroBalance !== false ? "1" : "0",
                         show_net_cash_flow_groups: "0",
                         gl_account_numbers: "0",
@@ -259,7 +274,17 @@ export async function syncEntrataBudgetReportJob(data) {
                     const responsePayload = await connector.fetchReportData(requestPayload);
                     const responseCode = responsePayload?.response?.code ?? 200;
                     const success = responseCode === 200;
-                    if (success && property.id) {
+                    if (success) {
+                        const respMsg = `[INFO] [${idx + 1}/${properties.length}] ${property.name ?? property.code}: Entrata response received (HTTP status: ${responseCode}).`;
+                        console.log(`[SyncBudgetReportJob] ${respMsg}`);
+                        data.onProgress?.(respMsg);
+                    }
+                    else {
+                        const respMsg = `[WARN] [${idx + 1}/${properties.length}] ${property.name ?? property.code}: Entrata returned non-200 response (${responseCode}).`;
+                        console.warn(`[SyncBudgetReportJob] ${respMsg}`);
+                        data.onProgress?.(respMsg);
+                    }
+                    if (success && property.id && data.updateFiscalConfig) {
                         await updatePropertyFiscalConfigFromReportPayload(property.id, responsePayload, targetBudgetYear);
                     }
                     await prisma.integrationReportApiLog.create({
@@ -292,12 +317,16 @@ export async function syncEntrataBudgetReportJob(data) {
                     console.log(`[SyncBudgetReportJob] Successfully saved report API log ${reportLogId} for property ${sourcePropertyId} (HTTP status: ${responseCode}).`);
                 }
                 catch (fetchErr) {
-                    console.error(`[ERROR] Failed fetching Entrata budget report for property ${sourcePropertyId} (glTreeId: ${glTreeId}):`, fetchErr?.message ?? fetchErr);
+                    const errMsg = `[ERROR] [${idx + 1}/${properties.length}] Failed fetching Entrata budget report for property ${sourcePropertyId}: ${fetchErr?.message ?? fetchErr}`;
+                    console.error(errMsg);
+                    data.onProgress?.(errMsg);
                 }
             }
         }
         else {
-            console.warn(`[WARN] Missing Entrata orgSlug or apiKey. Skipping live API fetch.`);
+            const warnMsg = `[WARN] Missing Entrata orgSlug or apiKey. Skipping live API fetch.`;
+            console.warn(warnMsg);
+            data.onProgress?.(warnMsg);
         }
     }
     let stagedCount = 0;
@@ -305,7 +334,9 @@ export async function syncEntrataBudgetReportJob(data) {
     let projectedCount = 0;
     // 3. Auto-process 3-Stage Pipeline if enabled
     if (data.autoProcess) {
-        console.log(`[SyncBudgetReportJob] Executing Stage 1 (Staging: fn_stage_budget_report_from_logs)...`);
+        const stageMsg = `[INFO] Executing Stage 1 (Staging: fn_stage_budget_report_from_logs)...`;
+        console.log(`[SyncBudgetReportJob] ${stageMsg}`);
+        data.onProgress?.(stageMsg);
         const stageRes = await prisma.$queryRawUnsafe(`
       SELECT * FROM public.fn_stage_budget_report_from_logs(
         '${data.companyId}'::uuid,
@@ -315,8 +346,12 @@ export async function syncEntrataBudgetReportJob(data) {
       );
     `);
         stagedCount = Number(stageRes?.[0]?.staged_count ?? 0);
-        console.log(`[SyncBudgetReportJob] Stage 1 Completed. Staged records: ${stagedCount}`);
-        console.log(`[SyncBudgetReportJob] Executing Stage 2 (Transformation: fn_transform_budget_report)...`);
+        const stageDoneMsg = `[INFO] Stage 1 Completed. Staged records: ${stagedCount}`;
+        console.log(`[SyncBudgetReportJob] ${stageDoneMsg}`);
+        data.onProgress?.(stageDoneMsg);
+        const transformMsg = `[INFO] Executing Stage 2 (Transformation: fn_transform_budget_report)...`;
+        console.log(`[SyncBudgetReportJob] ${transformMsg}`);
+        data.onProgress?.(transformMsg);
         const transformRes = await prisma.$queryRawUnsafe(`
       SELECT * FROM public.fn_transform_budget_report(
         '${data.companyId}'::uuid,
@@ -326,8 +361,12 @@ export async function syncEntrataBudgetReportJob(data) {
       );
     `);
         transformedCount = Number(transformRes?.[0]?.transformed_count ?? 0);
-        console.log(`[SyncBudgetReportJob] Stage 2 Completed. Transformed records: ${transformedCount}`);
-        console.log(`[SyncBudgetReportJob] Executing Stage 3 (Projection: fn_project_budgets_from_master_report)...`);
+        const transformDoneMsg = `[INFO] Stage 2 Completed. Transformed records: ${transformedCount}`;
+        console.log(`[SyncBudgetReportJob] ${transformDoneMsg}`);
+        data.onProgress?.(transformDoneMsg);
+        const projectMsg = `[INFO] Executing Stage 3 (Projection: fn_project_budgets_from_master_report)...`;
+        console.log(`[SyncBudgetReportJob] ${projectMsg}`);
+        data.onProgress?.(projectMsg);
         const projectRes = await prisma.$queryRawUnsafe(`
       SELECT * FROM public.fn_project_budgets_from_master_report(
         '${data.companyId}'::uuid,
@@ -339,7 +378,25 @@ export async function syncEntrataBudgetReportJob(data) {
       );
     `);
         projectedCount = projectRes?.reduce((sum, r) => sum + Number(r.calc_lines_upserted ?? 0), 0) ?? 0;
-        console.log(`[SyncBudgetReportJob] Stage 3 Completed. Upserted calc lines: ${projectedCount}`);
+        const projectDoneMsg = `[INFO] Stage 3 Completed. Upserted calc lines: ${projectedCount}`;
+        console.log(`[SyncBudgetReportJob] ${projectDoneMsg}`);
+        data.onProgress?.(projectDoneMsg);
+        // 4. Staging Cleanup for target property(ies) / syncRunId
+        const cleanupMsg = `[INFO] Cleaning up staging data from staging_budget_reports for target property/syncRun...`;
+        console.log(`[SyncBudgetReportJob] ${cleanupMsg}`);
+        data.onProgress?.(cleanupMsg);
+        const propIdList = properties.map((p) => `'${p.id}'::uuid`).join(",");
+        const sourceIdList = properties.map((p) => `'${p.externalId ? String(p.externalId) : (p.code ?? "")}'`).join(",");
+        const cleanupClause = propIdList.length > 0
+            ? `(sync_run_id = '${syncRunId}'::uuid OR property_id IN (${propIdList}) OR source_property_id IN (${sourceIdList})) AND (transform_status = 'TRANSFORMED' OR sync_run_id = '${syncRunId}'::uuid)`
+            : `sync_run_id = '${syncRunId}'::uuid`;
+        const cleanedRows = await prisma.$executeRawUnsafe(`
+      DELETE FROM public.staging_budget_reports
+      WHERE ${cleanupClause};
+    `);
+        const cleanupDoneMsg = `[INFO] Staging cleanup completed: removed ${cleanedRows} staged record(s).`;
+        console.log(`[SyncBudgetReportJob] ${cleanupDoneMsg}`);
+        data.onProgress?.(cleanupDoneMsg);
     }
     console.log(`================================================================================`);
     console.log(`[SyncBudgetReportJob] Sync run ${syncRunId} completed.`);
@@ -348,6 +405,7 @@ export async function syncEntrataBudgetReportJob(data) {
     console.log(`  Transformed Count : ${transformedCount}`);
     console.log(`  Projected Lines   : ${projectedCount}`);
     console.log(`================================================================================`);
+    data.onProgress?.(`[SUCCESS] Budget Report sync run ${syncRunId} completed successfully (Synced: ${reportLogIds.length}, Transformed: ${transformedCount}, Projected lines: ${projectedCount}).`);
     return {
         syncRunId,
         fiscalYear: referenceFiscalYear,

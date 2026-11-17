@@ -20,5 +20,9 @@ export const QueueNames = {
     TransformIncomeStatementActuals: "transform-income-statement-actuals-queue",
     ProjectIncomeStatementActuals: "project-income-statement-actuals-queue",
     ProcessIncomeStatementProperty: "process-income-statement-property-queue",
+    SyncBalanceSheetActuals: "sync-balance-sheet-actuals-queue",
+    StageBalanceSheetActuals: "stage-balance-sheet-actuals-queue",
+    TransformBalanceSheetActuals: "transform-balance-sheet-actuals-queue",
+    ProjectBalanceSheetActuals: "project-balance-sheet-actuals-queue",
 };
 //# sourceMappingURL=queue-names.js.map

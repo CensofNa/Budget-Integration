@@ -1,5 +1,6 @@
 import { prisma } from "@budget-integration/database";
-import { IntegrationError, projectBudgetSnapshotsFromImportedBudget } from "@budget-integration/integration-core";
+import { IntegrationError } from "@budget-integration/integration-core";
+import { projectBudgetSnapshotsFromImportedBudget } from "@budget-integration/domain-budget";
 /**
  * Projects imported/canonical Entrata budget data into final budget tables.
  *

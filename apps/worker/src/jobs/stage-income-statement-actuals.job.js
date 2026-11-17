@@ -332,7 +332,7 @@ export async function stageIncomeStatementActualsJob(data) {
                         fiscalYear,
                         actualAmount: new Prisma.Decimal(actualAmount),
                         totalAmount: totalAmount === null ? null : new Prisma.Decimal(totalAmount),
-                        rawRecordPayload: sourceRow,
+                        rawRecordPayload: {},
                         transformStatus: "PENDING",
                         transformErrors: Prisma.JsonNull,
                         transformedAt: null,

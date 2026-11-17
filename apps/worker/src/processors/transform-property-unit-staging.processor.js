@@ -14,7 +14,7 @@ export const transformPropertyUnitStagingWorker = new Worker(QueueNames.Transfor
         organisationId: job.data.organisationId,
         integrationSourceId: job.data.integrationSourceId,
         syncRunId: job.data.syncRunId,
-        batchSize: 50
+        batchSize: 200
     });
     await prisma.integrationQueueJob.updateMany({
         where: { bullJobId: String(job.id) },

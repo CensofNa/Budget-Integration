@@ -2,75 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
 import { processIncomeStatementPropertyQueue, } from "@budget-integration/integration-core";
-import { EntrataReportsConnector, fetchEntrataProperties } from "@budget-integration/connector-entrata";
-async function updatePropertyPostMonthFromEntrata(params) {
-    try {
-        const response = await fetchEntrataProperties({
-            apiKey: params.apiKey,
-            baseUrl: params.baseUrl,
-            orgSlug: params.orgSlug,
-            requestId: String(Date.now()),
-            propertyId: params.sourcePropertyId,
-        });
-        const propertyList = response?.response?.result?.Properties?.Property || [];
-        const propData = propertyList[0];
-        if (!propData)
-            return;
-        const postMonths = propData.PostMonths || {};
-        const parsePostMonth = (value) => {
-            const raw = String(value || "").trim();
-            if (!raw)
-                return { raw: null, year: null, monthNo: null };
-            const parts = raw.split("/");
-            if (parts.length !== 2)
-                return { raw, year: null, monthNo: null };
-            const monthNo = Number.parseInt(parts[0] || "", 10);
-            const year = Number.parseInt(parts[1] || "", 10);
-            return {
-                raw,
-                monthNo: Number.isNaN(monthNo) ? null : monthNo,
-                year: Number.isNaN(year) ? null : year,
-            };
-        };
-        const arPost = parsePostMonth(postMonths.ArPostMonth);
-        const apPost = parsePostMonth(postMonths.ApPostMonth);
-        const glPost = parsePostMonth(postMonths.GlPostMonth);
-        await prisma.propertyPostMonth.upsert({
-            where: { propertyId: params.propertyId },
-            update: {
-                arPostMonth: arPost.raw,
-                arPostYear: arPost.year,
-                arPostMonthNo: arPost.monthNo,
-                apPostMonth: apPost.raw,
-                apPostYear: apPost.year,
-                apPostMonthNo: apPost.monthNo,
-                glPostMonth: glPost.raw,
-                glPostYear: glPost.year,
-                glPostMonthNo: glPost.monthNo,
-                updatedAt: new Date(),
-            },
-            create: {
-                companyId: params.companyId,
-                organisationId: params.organisationId,
-                propertyId: params.propertyId,
-                arPostMonth: arPost.raw,
-                arPostYear: arPost.year,
-                arPostMonthNo: arPost.monthNo,
-                apPostMonth: apPost.raw,
-                apPostYear: apPost.year,
-                apPostMonthNo: apPost.monthNo,
-                glPostMonth: glPost.raw,
-                glPostYear: glPost.year,
-                glPostMonthNo: glPost.monthNo,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-            },
-        });
-    }
-    catch (error) {
-        console.error(`[WARN] Failed to update property post month from Entrata for ${params.sourcePropertyId}:`, error);
-    }
-}
+import { EntrataReportsConnector } from "@budget-integration/connector-entrata";
 function toJsonObject(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
         return {};
@@ -111,6 +43,20 @@ function getLatestClosedMonthEnd(today = new Date()) {
       JavaScript month is zero-based.
     */
     return new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0));
+}
+function getMonthEndDateFromCutoff(cutoffStr) {
+    const trimmed = cutoffStr.trim();
+    const yyyyMm = trimmed.match(/^(\d{4})-(\d{1,2})$/);
+    if (yyyyMm && yyyyMm[1] && yyyyMm[2]) {
+        const year = parseInt(yyyyMm[1], 10);
+        const month = parseInt(yyyyMm[2], 10);
+        return new Date(Date.UTC(year, month, 0));
+    }
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+    }
+    return getLatestClosedMonthEnd();
 }
 function getTrailingPeriodsFromFiscalYearStart(latestClosedMonthEnd, fiscalYearStartMonth = 1) {
     /*
@@ -182,58 +128,95 @@ async function getIncomeStatementReportDefinition(params) {
     }
     return definition;
 }
-async function resolveEntrataGlTreeId(params) {
-    if (params.requestedGlTreeId?.trim()) {
-        return params.requestedGlTreeId.trim();
+/**
+ * Resolves Entrata GL Tree ID based on property metadata:
+ * - Livano properties: "1913"
+ * - Non-Livano properties: "1812"
+ * - Explicit glTreeId override if supplied
+ */
+function resolveGlTreeIdForProperty(property, explicitGlTreeId) {
+    if (explicitGlTreeId?.trim()) {
+        return explicitGlTreeId.trim();
     }
-    /*
-      Do not hardcode gl_tree_ids.
-  
-      Important:
-        sourceRecordId may be an internal UUID in some implementations.
-        Entrata expects a numeric GL tree id such as "1812".
-  
-      For now, only use sourceRecordId if it looks numeric. Otherwise fail with a
-      clear message and pass glTreeId manually until the GL tree resolver is fixed.
-    */
-    const mappedGlTree = await prisma.sourceRecordMap.findFirst({
-        where: {
-            companyId: params.companyId,
-            organisationId: params.organisationId,
-            integrationSourceId: params.integrationSourceId,
-            entityName: "GlTree",
-            matchStatus: {
-                in: ["AUTO_MATCHED", "MANUAL_MATCHED"],
-            },
-        },
-        orderBy: {
-            updatedAt: "desc",
-        },
-        select: {
-            sourceRecordId: true,
-        },
-    });
-    const candidate = mappedGlTree?.sourceRecordId
-        ? String(mappedGlTree.sourceRecordId).trim()
-        : "";
-    if (/^\d+$/.test(candidate)) {
-        return candidate;
-    }
-    throw new Error("Unable to resolve numeric Entrata GL tree id. Sync GL Trees/fix the resolver or pass glTreeId manually.");
+    const nameToCheck = property.name || property.propertyName || "";
+    const isLivano = (property.ownerName && property.ownerName.toLowerCase().includes("livano")) ||
+        nameToCheck.toLowerCase().includes("livano");
+    return isLivano ? "1913" : "1812";
 }
 async function resolveSyncablePropertiesForFiscalYear(params) {
     const requestedCodes = normalizePropertyCodes(params.propertyCodes);
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let filterPropertyIds = null;
+    let filterPropertyCodes = null;
+    if (requestedCodes && requestedCodes.length > 0) {
+        // Specific codes or IDs requested by user
+        const uuids = requestedCodes.filter((c) => uuidRegex.test(c));
+        const nonUuids = requestedCodes.filter((c) => !uuidRegex.test(c));
+        filterPropertyIds = uuids.length > 0 ? uuids : null;
+        filterPropertyCodes = nonUuids.length > 0 ? nonUuids : null;
+    }
+    else if (!params.forceAll) {
+        // "Sync All" invoked: resolve only properties where is_gl_locked_changed = true!
+        const resolveMsg = '[INFO] "Sync All" invoked: resolving properties where is_gl_locked_changed = true';
+        console.log(resolveMsg);
+        params?.onProgress?.(resolveMsg);
+        const changedStatuses = await prisma.propertyClosingStatus.findMany({
+            where: {
+                companyId: params.companyId,
+                organisationId: params.organisationId,
+                isGlLockedChanged: true,
+            },
+            select: {
+                propertyId: true,
+                propertyName: true,
+            },
+        });
+        const validIds = changedStatuses
+            .map((s) => s.propertyId)
+            .filter((id) => Boolean(id && uuidRegex.test(id)));
+        // In case any records didn't have propertyId yet, look them up by propertyName
+        const missingNames = changedStatuses
+            .filter((s) => !s.propertyId || !uuidRegex.test(s.propertyId))
+            .map((s) => s.propertyName)
+            .filter(Boolean);
+        if (missingNames.length > 0) {
+            const matchedProps = await prisma.property.findMany({
+                where: {
+                    companyId: params.companyId,
+                    organisationId: params.organisationId,
+                    name: { in: missingNames },
+                },
+                select: { id: true },
+            });
+            for (const p of matchedProps) {
+                validIds.push(p.id);
+            }
+        }
+        const uniqueChangedIds = Array.from(new Set(validIds));
+        if (uniqueChangedIds.length === 0) {
+            console.log(`[INFO] No valid properties found with is_gl_locked_changed = true. Skipping income statement sync.`);
+            return {
+                properties: [],
+                skippedProperties: [],
+            };
+        }
+        const foundMsg = `[INFO] Found ${uniqueChangedIds.length} property candidate(s) with changed GL lock status.`;
+        console.log(foundMsg);
+        params?.onProgress?.(foundMsg);
+        filterPropertyIds = uniqueChangedIds;
+    }
+    const orConditions = [];
+    if (filterPropertyCodes && filterPropertyCodes.length > 0) {
+        orConditions.push({ propertyCode: { in: filterPropertyCodes } });
+    }
+    if (filterPropertyIds && filterPropertyIds.length > 0) {
+        orConditions.push({ propertyId: { in: filterPropertyIds } }, { propertyCode: { in: filterPropertyIds } });
+    }
     const candidateRows = await prisma.propertyYearConfiguration.findMany({
         where: {
             companyId: params.companyId,
             organisationId: params.organisationId,
-            ...(requestedCodes
-                ? {
-                    propertyCode: {
-                        in: requestedCodes,
-                    },
-                }
-                : {}),
+            ...(orConditions.length > 0 ? { OR: orConditions } : {}),
         },
         select: {
             propertyId: true,
@@ -249,35 +232,88 @@ async function resolveSyncablePropertiesForFiscalYear(params) {
         ],
     });
     const rowsByCode = new Map();
+    const rowsById = new Map();
     for (const row of candidateRows) {
-        const list = rowsByCode.get(row.propertyCode) ?? [];
-        list.push(row);
-        rowsByCode.set(row.propertyCode, list);
+        const listCode = rowsByCode.get(row.propertyCode) ?? [];
+        listCode.push(row);
+        rowsByCode.set(row.propertyCode, listCode);
+        const listId = rowsById.get(row.propertyId) ?? [];
+        listId.push(row);
+        rowsById.set(row.propertyId, listId);
     }
     const skippedProperties = [];
     const properties = [];
-    const selectBestRow = (code) => {
-        const codeRows = rowsByCode.get(code);
-        if (!codeRows || codeRows.length === 0)
+    const selectBestRowForList = (rows) => {
+        if (!rows || rows.length === 0)
             return null;
-        const exactMatch = codeRows.find((r) => r.fiscalYear === params.fiscalYear);
+        const exactMatch = rows.find((r) => r.fiscalYear === params.fiscalYear);
         if (exactMatch)
             return exactMatch;
-        const nextYearMatch = codeRows.find((r) => r.fiscalYear === params.fiscalYear + 1);
+        const nextYearMatch = rows.find((r) => r.fiscalYear === params.fiscalYear + 1);
         if (nextYearMatch)
             return nextYearMatch;
-        return codeRows[0];
+        return rows[0];
     };
-    const targetPropertyCodes = requestedCodes ?? Array.from(rowsByCode.keys());
-    for (const code of targetPropertyCodes) {
-        const bestRow = selectBestRow(code);
+    const selectBestRow = (identifier) => {
+        return selectBestRowForList(rowsByCode.get(identifier) ?? rowsById.get(identifier));
+    };
+    // If user provided propertyCodes, iterate over them (so missing ones can be reported as skipped).
+    // Otherwise, iterate over all unique property IDs discovered in candidateRows.
+    const targetPropertyIdentifiers = requestedCodes && requestedCodes.length > 0
+        ? requestedCodes
+        : Array.from(rowsById.keys());
+    // Fetch canonical property records to get ownerName and name
+    const allPropertyIds = Array.from(new Set(candidateRows.map((r) => r.propertyId)));
+    const propertiesFromDb = allPropertyIds.length > 0
+        ? await prisma.property.findMany({
+            where: {
+                id: { in: allPropertyIds },
+                companyId: params.companyId,
+                organisationId: params.organisationId,
+            },
+            select: {
+                id: true,
+                code: true,
+                name: true,
+                ownerName: true,
+            },
+        })
+        : [];
+    const propertyMap = new Map(propertiesFromDb.map((p) => [p.id, p]));
+    // Fetch closing statuses to retrieve each property's glLockedThrough date
+    const closingStatuses = allPropertyIds.length > 0
+        ? await prisma.propertyClosingStatus.findMany({
+            where: {
+                companyId: params.companyId,
+                organisationId: params.organisationId,
+                propertyId: { in: allPropertyIds },
+            },
+            select: {
+                propertyId: true,
+                glLockedThrough: true,
+            },
+        })
+        : [];
+    const glLockedMap = new Map();
+    for (const cs of closingStatuses) {
+        if (cs.glLockedThrough && cs.propertyId) {
+            glLockedMap.set(cs.propertyId, cs.glLockedThrough);
+        }
+    }
+    const seenPropertyIds = new Set();
+    for (const identifier of targetPropertyIdentifiers) {
+        const bestRow = selectBestRow(identifier);
         if (!bestRow) {
             skippedProperties.push({
-                propertyCode: code,
+                propertyCode: identifier,
                 reason: "NOT_CONFIGURED_FOR_FISCAL_YEAR",
             });
             continue;
         }
+        if (seenPropertyIds.has(bestRow.propertyId)) {
+            continue;
+        }
+        seenPropertyIds.add(bestRow.propertyId);
         if (!bestRow.isActive) {
             skippedProperties.push({
                 propertyCode: bestRow.propertyCode,
@@ -292,10 +328,27 @@ async function resolveSyncablePropertiesForFiscalYear(params) {
             });
             continue;
         }
+        const propRecord = propertyMap.get(bestRow.propertyId);
+        const ownerName = propRecord?.ownerName ?? null;
+        const resolvedName = propRecord?.name ?? bestRow.propertyName;
+        // Apply ownerFilter if supplied
+        if (params.ownerFilter && params.ownerFilter !== "all") {
+            const isLivano = (ownerName && ownerName.toLowerCase().includes("livano")) ||
+                (resolvedName && resolvedName.toLowerCase().includes("livano"));
+            if (params.ownerFilter === "livano" && !isLivano) {
+                continue;
+            }
+            if (params.ownerFilter === "non-livano" && isLivano) {
+                continue;
+            }
+        }
+        const glLockedThrough = glLockedMap.get(bestRow.propertyId) ?? null;
         properties.push({
             propertyId: bestRow.propertyId,
             propertyCode: bestRow.propertyCode,
-            propertyName: bestRow.propertyName,
+            propertyName: resolvedName,
+            ownerName,
+            glLockedThrough,
         });
     }
     return {
@@ -397,12 +450,14 @@ export async function syncEntrataIncomeStatementActualsJob(data) {
         integrationSourceId: data.integrationSourceId,
     });
     const syncSettings = toJsonObject(reportDefinition.syncSettingsJson);
-    const latestClosedMonthEnd = data.latestPostMonth
-        ? new Date(data.latestPostMonth)
-        : getLatestClosedMonthEnd();
-    if (Number.isNaN(latestClosedMonthEnd.getTime())) {
-        throw new Error(`Invalid latestPostMonth: ${data.latestPostMonth}`);
+    const effectiveCutoffMonthEnd = data.reforecastCutoffMonth
+        ? getMonthEndDateFromCutoff(data.reforecastCutoffMonth)
+        : (data.latestPostMonth ? new Date(data.latestPostMonth) : getLatestClosedMonthEnd());
+    if (Number.isNaN(effectiveCutoffMonthEnd.getTime())) {
+        throw new Error(`Invalid cutoff month / latestPostMonth: ${data.reforecastCutoffMonth ?? data.latestPostMonth}`);
     }
+    const hasExplicitCutoff = Boolean(data.reforecastCutoffMonth || data.latestPostMonth);
+    const latestClosedMonthEnd = effectiveCutoffMonthEnd;
     const fiscalYearStartMonth = Number(syncSettings.fiscalYearStartMonth ?? 1);
     const periodType = (data.periodType && data.periodType !== "pm")
         ? data.periodType
@@ -449,17 +504,19 @@ export async function syncEntrataIncomeStatementActualsJob(data) {
     if (!apiKey) {
         throw new Error("Entrata API key not configured.");
     }
-    if (!data.glBookIds || data.glBookIds.length === 0) {
-        throw new Error("glBookIds is required for Income Statement Actuals sync until Entrata confirms the source of this field.");
-    }
+    const glBookIds = data.glBookIds && data.glBookIds.length > 0 ? data.glBookIds : [1909];
     const propertySelection = await resolveSyncablePropertiesForFiscalYear({
         companyId: data.companyId,
         organisationId: data.organisationId,
         fiscalYear: data.fiscalYear,
         includeDemo: data.includeDemo ?? false,
-        ...(data.propertyIds && data.propertyIds.length > 0
-            ? { propertyCodes: data.propertyIds }
-            : {}),
+        ...(data.ownerFilter ? { ownerFilter: data.ownerFilter } : {}),
+        ...(data.forceAll !== undefined ? { forceAll: data.forceAll } : {}),
+        ...((data.propertyCodes && data.propertyCodes.length > 0)
+            ? { propertyCodes: data.propertyCodes }
+            : (data.propertyIds && data.propertyIds.length > 0
+                ? { propertyCodes: data.propertyIds }
+                : {})),
     });
     if (propertySelection.skippedProperties.length > 0) {
         for (const skipped of propertySelection.skippedProperties) {
@@ -489,10 +546,10 @@ export async function syncEntrataIncomeStatementActualsJob(data) {
                 recordsStaged: 0,
                 recordsProcessed: 0,
                 recordsFailed: 0,
-                completedAt: new Date(),
+                ...(data.autoProcess ? {} : { completedAt: new Date() }),
                 errorMessage: skippedSummary
                     ? `No syncable properties found. Skipped: ${skippedSummary}`
-                    : "No syncable properties found."
+                    : "No properties with changed GL lock status found to sync (is_gl_locked_changed = true)."
             }
         });
         return {
@@ -520,38 +577,100 @@ export async function syncEntrataIncomeStatementActualsJob(data) {
     let successfulCount = 0;
     let failedCount = 0;
     let processJobsQueued = 0;
+    // Initialize tracking records for all properties to be synced
+    for (const sp of propertySelection.properties) {
+        await prisma.integrationPropertyProcessRun.upsert({
+            where: {
+                companyId_organisationId_integrationSourceId_syncRunId_entityName_sourcePropertyId: {
+                    companyId: data.companyId,
+                    organisationId: data.organisationId,
+                    integrationSourceId: data.integrationSourceId,
+                    syncRunId,
+                    entityName: "IncomeStatementActuals",
+                    sourcePropertyId: sp.propertyCode,
+                },
+            },
+            create: {
+                companyId: data.companyId,
+                organisationId: data.organisationId,
+                integrationSourceId: data.integrationSourceId,
+                syncRunId,
+                entityName: "IncomeStatementActuals",
+                sourcePropertyId: sp.propertyCode,
+                propertyId: sp.propertyId,
+                propertyCode: sp.propertyCode,
+                fiscalYear: data.fiscalYear,
+                status: "PENDING",
+            },
+            update: {
+                propertyId: sp.propertyId,
+                propertyCode: sp.propertyCode,
+                fiscalYear: data.fiscalYear,
+                status: "PENDING",
+            },
+        }).catch((err) => console.warn("[WARN] Could not upsert initial process run:", err.message));
+    }
     for (const syncProperty of propertySelection.properties) {
         const sourcePropertyId = syncProperty.propertyCode;
         const propertyId = syncProperty.propertyId;
         const propertyCode = syncProperty.propertyCode;
+        const glTreeId = resolveGlTreeIdForProperty(syncProperty, data.glTreeId);
+        const targetCutoffDateStr = data.latestPostMonth ?? (data.reforecastCutoffMonth ? getMonthEndDateFromCutoff(data.reforecastCutoffMonth).toISOString() : undefined);
+        if (targetCutoffDateStr) {
+            const parsedLatestPostMonth = new Date(targetCutoffDateStr);
+            if (!Number.isNaN(parsedLatestPostMonth.getTime())) {
+                const closingOrConditions = [];
+                if (syncProperty.propertyId) {
+                    closingOrConditions.push({ propertyId: syncProperty.propertyId });
+                }
+                const nameToMatch = syncProperty.propertyName || syncProperty.name;
+                if (nameToMatch) {
+                    closingOrConditions.push({ propertyName: nameToMatch });
+                }
+                if (closingOrConditions.length > 0) {
+                    await prisma.propertyClosingStatus.updateMany({
+                        where: {
+                            companyId: data.companyId,
+                            organisationId: data.organisationId,
+                            OR: closingOrConditions,
+                        },
+                        data: {
+                            glLockedThrough: parsedLatestPostMonth,
+                            updatedAt: new Date(),
+                        },
+                    }).catch((err) => {
+                        console.warn(`[WARN] Failed to update glLockedThrough to latestPostMonth for property ${propertyCode}:`, err.message);
+                    });
+                }
+            }
+        }
+        const propertyMonthEnd = syncProperty.glLockedThrough && !hasExplicitCutoff
+            ? syncProperty.glLockedThrough
+            : effectiveCutoffMonthEnd;
+        const propertyTrailingPeriods = (data.trailingPeriods !== undefined && data.trailingPeriods !== null)
+            ? data.trailingPeriods
+            : (periodType === "pm"
+                ? (propertyMonthEnd.getUTCMonth() + 1 - 1)
+                : getTrailingPeriodsFromFiscalYearStart(propertyMonthEnd, fiscalYearStartMonth));
+        const propertyPmFilterValue = `${String(propertyMonthEnd.getUTCMonth() + 1).padStart(2, "0")}/${propertyMonthEnd.getUTCFullYear()}`;
         const reportLogId = randomUUID();
         const requestId = String(Date.now());
+        const propDisplayName = syncProperty.propertyName || propertyCode;
+        const currentIdx = processedProperties + 1;
+        const callingMsg = `[INFO] [${currentIdx}/${totalProperties}] Calling Entrata for ${propDisplayName} (code: ${propertyCode})...`;
+        console.log(callingMsg);
+        data.onProgress?.(callingMsg);
         try {
-            const glTreeId = await resolveEntrataGlTreeId({
-                companyId: data.companyId,
-                organisationId: data.organisationId,
-                integrationSourceId: data.integrationSourceId,
-                ...(data.glTreeId ? { requestedGlTreeId: data.glTreeId } : {}),
-            });
-            await updatePropertyPostMonthFromEntrata({
-                propertyId,
-                sourcePropertyId,
-                apiKey,
-                baseUrl,
-                orgSlug,
-                companyId: data.companyId,
-                organisationId: data.organisationId,
-            });
             const requestPayload = buildIncomeStatementRequest({
                 requestId,
                 reportDefinition,
                 sourcePropertyId,
                 glTreeId,
-                glBookIds: data.glBookIds,
+                glBookIds,
                 accountingMethod,
                 periodType,
-                trailingPeriods,
-                ...(pmFilterValue ? { pmFilterValue } : {}),
+                trailingPeriods: propertyTrailingPeriods,
+                ...(propertyPmFilterValue ? { pmFilterValue: propertyPmFilterValue } : {}),
             });
             const sanitizedRequestPayload = {
                 ...sanitizeRequestPayload(requestPayload),
@@ -575,11 +694,11 @@ export async function syncEntrataIncomeStatementActualsJob(data) {
                     propertyId,
                     propertyCode,
                     glTreeId,
-                    glBookIds: data.glBookIds,
+                    glBookIds: glBookIds,
                     accountingMethod,
                     periodType,
-                    latestPostMonth: latestClosedMonthEnd,
-                    trailingPeriods,
+                    latestPostMonth: propertyMonthEnd,
+                    trailingPeriods: propertyTrailingPeriods,
                     futurePeriods: 0,
                     requestPayload: sanitizedRequestPayload,
                     responsePayload: responsePayload,
@@ -593,8 +712,23 @@ export async function syncEntrataIncomeStatementActualsJob(data) {
             reportLogIds.push(reportLogId);
             if (success) {
                 successfulCount += 1;
+                const successMsg = `[INFO] [${currentIdx}/${totalProperties}] ${propDisplayName}: Entrata response received (200 OK).`;
+                data.onProgress?.(successMsg);
+                await prisma.integrationPropertyProcessRun.updateMany({
+                    where: {
+                        syncRunId,
+                        sourcePropertyId,
+                    },
+                    data: {
+                        status: "QUEUED",
+                    },
+                }).catch(() => undefined);
                 if (data.autoProcess) {
                     try {
+                        const shouldUpdateReforecast = data.updateReforecast === true ||
+                            (data.updateReforecast !== false && Boolean(data.reforecastCutoffMonth));
+                        const resolvedCutoff = data.reforecastCutoffMonth ??
+                            (data.latestPostMonth ? String(data.latestPostMonth).slice(0, 7) : undefined);
                         const processJob = await processIncomeStatementPropertyQueue.add("process-income-statement-property", {
                             companyId: data.companyId,
                             organisationId: data.organisationId,
@@ -605,8 +739,10 @@ export async function syncEntrataIncomeStatementActualsJob(data) {
                             ...(propertyId ? { propertyId } : {}),
                             ...(propertyCode ? { propertyCode } : {}),
                             fiscalYear: data.fiscalYear,
-                            updateReforecast: data.updateReforecast ?? false,
-                            ...(data.reforecastCutoffMonth ? { reforecastCutoffMonth: data.reforecastCutoffMonth } : {}),
+                            updateReforecast: shouldUpdateReforecast,
+                            ...(shouldUpdateReforecast && resolvedCutoff
+                                ? { reforecastCutoffMonth: resolvedCutoff }
+                                : {}),
                         }, {
                             attempts: 2,
                             backoff: {
@@ -635,6 +771,18 @@ export async function syncEntrataIncomeStatementActualsJob(data) {
             }
             else {
                 failedCount += 1;
+                const failed200Msg = `[WARN] [${currentIdx}/${totalProperties}] ${propDisplayName}: Entrata non-200 response (${responseCode}).`;
+                data.onProgress?.(failed200Msg);
+                await prisma.integrationPropertyProcessRun.updateMany({
+                    where: {
+                        syncRunId,
+                        sourcePropertyId,
+                    },
+                    data: {
+                        status: "FAILED",
+                        errorMessage: `Entrata API non-200 code: ${responseCode}`,
+                    },
+                }).catch(() => undefined);
                 console.error(`[ERROR] IncomeStatementActuals report request NOT PROCESSED (non-200 response code: ${responseCode}) for property ${propertyCode}`, {
                     syncRunId,
                     propertyCode,
@@ -657,6 +805,8 @@ export async function syncEntrataIncomeStatementActualsJob(data) {
         }
         catch (error) {
             failedCount += 1;
+            const catchMsg = `[ERROR] [${processedProperties + 1}/${totalProperties}] Failed for ${syncProperty.propertyName || syncProperty.propertyCode}: ${error instanceof Error ? error.message : String(error)}`;
+            data.onProgress?.(catchMsg);
             const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
             await prisma.integrationReportApiLog.create({
                 data: {
@@ -713,11 +863,13 @@ export async function syncEntrataIncomeStatementActualsJob(data) {
             });
         }
     }
-    const finalSyncRunStatus = failedCount > 0 && successfulCount > 0
-        ? "PARTIAL_FAILED"
-        : failedCount > 0
-            ? "FAILED"
-            : "COMPLETED";
+    const finalSyncRunStatus = data.autoProcess
+        ? (failedCount > 0 ? "PROCESSING_WITH_ERRORS" : "PROCESSING")
+        : (failedCount > 0 && successfulCount > 0
+            ? "PARTIAL_FAILED"
+            : failedCount > 0
+                ? "FAILED"
+                : "COMPLETED");
     await prisma.integrationSyncRun.update({
         where: { id: syncRunId },
         data: {
@@ -726,7 +878,7 @@ export async function syncEntrataIncomeStatementActualsJob(data) {
             recordsStaged: successfulCount,
             recordsProcessed: successfulCount,
             recordsFailed: failedCount,
-            completedAt: new Date(),
+            ...(data.autoProcess ? {} : { completedAt: new Date() }),
             errorMessage: failedCount > 0 ? `${failedCount} property sync(s) failed.` : null
         }
     });

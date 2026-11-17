@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
-import { transformEntrataProperty } from "@budget-integration/integration-core";
+import { transformEntrataProperty } from "@budget-integration/domain-property";
 export async function transformStagedPropertiesJob(input = {}) {
     const batchSize = input.batchSize ?? 50;
     let totalTransformed = 0;
@@ -30,7 +30,8 @@ export async function transformStagedPropertiesJob(input = {}) {
                     stagingPropertyId: stagedProperty.id,
                     sourceRecordId: stagedProperty.sourceRecordId ?? "",
                     sourceHash: stagedProperty.sourceHash,
-                    rawPropertyPayload: stagedProperty.rawPropertyPayload
+                    rawPropertyPayload: stagedProperty.rawPropertyPayload,
+                    updateFiscalConfig: input.updateFiscalConfig
                 });
                 totalTransformed++;
             }

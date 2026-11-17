@@ -20,5 +20,9 @@ export declare const QueueNames: {
     readonly TransformIncomeStatementActuals: "transform-income-statement-actuals-queue";
     readonly ProjectIncomeStatementActuals: "project-income-statement-actuals-queue";
     readonly ProcessIncomeStatementProperty: "process-income-statement-property-queue";
+    readonly SyncBalanceSheetActuals: "sync-balance-sheet-actuals-queue";
+    readonly StageBalanceSheetActuals: "stage-balance-sheet-actuals-queue";
+    readonly TransformBalanceSheetActuals: "transform-balance-sheet-actuals-queue";
+    readonly ProjectBalanceSheetActuals: "project-balance-sheet-actuals-queue";
 };
 //# sourceMappingURL=queue-names.d.ts.map

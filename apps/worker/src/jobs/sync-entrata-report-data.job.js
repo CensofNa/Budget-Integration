@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
-import { IntegrationError, createSourceHash, asObject, asArray, getString, getNumberFromJson, getStringArray, chunkArray, } from "@budget-integration/integration-core";
+import { IntegrationError, createSourceHash, asObject, asArray, getString, getNumberFromJson, getStringArray, chunkArray, resolveSystemAdminUserId, } from "@budget-integration/integration-core";
 import { EntrataReportsConnector } from "@budget-integration/connector-entrata";
 function normalizeReportCode(reportCode) {
     return reportCode.trim().toLowerCase();
@@ -163,7 +163,107 @@ function getReportRows(reportCode, response) {
         !Array.isArray(reportData)) {
         return groupBoxScoreReportDataByProperty(reportData);
     }
+    if (reportData &&
+        typeof reportData === "object" &&
+        !Array.isArray(reportData) &&
+        Array.isArray(reportData.budget)) {
+        return asArray(reportData.budget);
+    }
     return asArray(reportData);
+}
+const BUDGET_REPORT_MONTH_MAP = {
+    jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+    jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+async function updatePropertiesFiscalFromBudgetReportResponse(input) {
+    if (input.rows.length === 0)
+        return;
+    const rowsByLookupCode = new Map();
+    const fallbackGroupIds = asArray(input.filters?.property_group_ids)
+        .map((id) => getString(id))
+        .filter((id) => !!id);
+    for (const row of input.rows) {
+        const code = getString(row.lookup_code) ?? (fallbackGroupIds.length === 1 ? fallbackGroupIds[0] : null);
+        if (!code)
+            continue;
+        const list = rowsByLookupCode.get(code) ?? [];
+        list.push(row);
+        rowsByLookupCode.set(code, list);
+    }
+    for (const [propCode, propRows] of rowsByLookupCode.entries()) {
+        const sampleRow = propRows.find((r) => Object.keys(r).some((k) => /^[a-z]{3}_\d{4}$/i.test(k)));
+        if (!sampleRow)
+            continue;
+        const parsedMonths = Object.keys(sampleRow)
+            .filter((k) => /^[a-z]{3}_\d{4}$/i.test(k))
+            .map((k) => {
+            const parts = k.split("_");
+            const mNum = BUDGET_REPORT_MONTH_MAP[(parts[0] ?? "").toLowerCase()];
+            const yNum = Number.parseInt(parts[1] ?? "", 10);
+            if (!mNum || Number.isNaN(yNum))
+                return null;
+            return { year: yNum, month: mNum, absMonth: yNum * 12 + (mNum - 1) };
+        })
+            .filter((m) => m !== null)
+            .sort((a, b) => a.absMonth - b.absMonth);
+        if (parsedMonths.length === 0)
+            continue;
+        const firstMonth = parsedMonths[0];
+        const lastMonth = parsedMonths[parsedMonths.length - 1];
+        const startMonth = firstMonth.month;
+        const endMonth = lastMonth.month;
+        const targetBudgetYear = new Date().getUTCFullYear() + 1;
+        const fiscalStartDate = new Date(Date.UTC(targetBudgetYear, startMonth - 1, 1));
+        const fiscalEndDate = new Date(Date.UTC(endMonth < startMonth ? targetBudgetYear + 1 : targetBudgetYear, endMonth, 0));
+        const budgetYearType = startMonth === 1 ? "CALENDAR_YEAR" : "FISCAL_YEAR";
+        const numericCode = Number.parseInt(propCode, 10);
+        const validNumericCode = Number.isInteger(numericCode) && numericCode > 0 ? numericCode : null;
+        const prop = await prisma.property.findFirst({
+            where: {
+                companyId: input.companyId,
+                organisationId: input.organisationId,
+                OR: [
+                    { code: propCode },
+                    ...(validNumericCode !== null ? [{ externalId: validNumericCode }] : [])
+                ]
+            },
+            select: {
+                id: true,
+                budgetYear: true,
+                budgetYearType: true,
+                fiscalYearStartMonth: true,
+                fiscalYearEndMonth: true,
+                fiscalYearStartDate: true,
+                fiscalYearEndDate: true
+            }
+        });
+        if (!prop)
+            continue;
+        const isSame = prop.budgetYear === targetBudgetYear &&
+            prop.budgetYearType === budgetYearType &&
+            prop.fiscalYearStartMonth === startMonth &&
+            prop.fiscalYearEndMonth === endMonth &&
+            prop.fiscalYearStartDate?.toISOString().slice(0, 10) === fiscalStartDate.toISOString().slice(0, 10) &&
+            prop.fiscalYearEndDate?.toISOString().slice(0, 10) === fiscalEndDate.toISOString().slice(0, 10);
+        if (!isSame) {
+            const systemAdminUserId = await resolveSystemAdminUserId(prisma);
+            await prisma.property.update({
+                where: { id: prop.id },
+                data: {
+                    budgetYear: targetBudgetYear,
+                    budgetYearType,
+                    fiscalYearStartMonth: startMonth,
+                    fiscalYearEndMonth: endMonth,
+                    fiscalYearStartDate: fiscalStartDate,
+                    fiscalYearEndDate: fiscalEndDate,
+                    updatedSource: "ENTRATA",
+                    ...(systemAdminUserId ? { updatedBy: systemAdminUserId } : {})
+                }
+            });
+            console.log(`[SyncEntrataReportDataJob] Updated Property ${propCode} (${prop.id}) fiscal config from budget report: ` +
+                `type=${budgetYearType}, start=${fiscalStartDate.toISOString().slice(0, 10)}, end=${fiscalEndDate.toISOString().slice(0, 10)}`);
+        }
+    }
 }
 function getReportFilters(defaultParamsJson) {
     const defaultParams = asObject(defaultParamsJson);
@@ -309,7 +409,7 @@ async function getDistinctPropertyCodes(input) {
         organisationId: input.organisationId,
         fiscalYear: input.fiscalYear,
     });
-    const pycs = await prisma.propertyYearConfiguration.findMany({
+    let pycs = await prisma.propertyYearConfiguration.findMany({
         where: {
             companyId: input.companyId,
             organisationId: input.organisationId,
@@ -325,9 +425,47 @@ async function getDistinctPropertyCodes(input) {
             propertyCode: "asc",
         },
     });
-    const propertyCodes = pycs
+    // Fallback 1: If no configurations match the requested fiscalYear, query active non-demo configs without fiscalYear constraint
+    if (pycs.length === 0 && input.fiscalYear !== undefined) {
+        pycs = await prisma.propertyYearConfiguration.findMany({
+            where: {
+                companyId: input.companyId,
+                organisationId: input.organisationId,
+                isActive: true,
+                isDemo: false,
+            },
+            select: {
+                propertyCode: true,
+            },
+            distinct: ["propertyCode"],
+            orderBy: {
+                propertyCode: "asc",
+            },
+        });
+    }
+    let propertyCodes = pycs
         .map((pyc) => pyc.propertyCode)
         .filter((value) => !!value && value.trim().length > 0);
+    // Fallback 2: If still no property codes, query active properties from properties table
+    if (propertyCodes.length === 0) {
+        const props = await prisma.property.findMany({
+            where: {
+                companyId: input.companyId,
+                organisationId: input.organisationId,
+                isDisabled: false,
+            },
+            select: {
+                code: true,
+                externalId: true,
+            },
+            orderBy: {
+                code: "asc",
+            },
+        });
+        propertyCodes = props
+            .map((p) => p.code ?? (p.externalId ? String(p.externalId) : null))
+            .filter((value) => !!value && value.trim().length > 0);
+    }
     console.log("Property codes fetched successfully.", {
         count: propertyCodes.length,
         sample: propertyCodes.slice(0, 10),
@@ -503,6 +641,7 @@ export async function syncEntrataReportDataJob(input) {
             ? "property_group_ids"
             : undefined);
     let filterBatches = [baseFilters];
+    let syncedPropertyCodes = [];
     if (isOccupancyReport(input.reportCode)) {
         let propertyCodes = requestedPropertyIds.length > 0
             ? requestedPropertyIds
@@ -512,6 +651,7 @@ export async function syncEntrataReportDataJob(input) {
                 fiscalYear: input.fiscalYear ?? new Date().getFullYear(),
             });
         propertyCodes = propertyCodes.filter((value) => !!value && value.trim().length > 0);
+        syncedPropertyCodes = propertyCodes;
         if (propertyCodes.length === 0) {
             throw new IntegrationError({
                 message: "No property codes found for occupancy report sync.",
@@ -742,7 +882,9 @@ export async function syncEntrataReportDataJob(input) {
             : await getDistinctPropertyCodes({
                 companyId: input.companyId,
                 organisationId: input.organisationId,
-                fiscalYear: input.fiscalYear ?? new Date().getFullYear(),
+                fiscalYear: input.reportCode === "property_closings"
+                    ? input.fiscalYear
+                    : (input.fiscalYear ?? new Date().getFullYear()),
             });
         propertyCodes = propertyCodes.filter((value) => !!value && value.trim().length > 0);
         if (propertyCodes.length === 0) {
@@ -875,6 +1017,17 @@ export async function syncEntrataReportDataJob(input) {
                 });
                 const rows = getReportRows(input.reportCode, response);
                 totalRows += rows.length;
+                if (input.updateFiscalConfig &&
+                    (normalizeReportCode(input.reportCode) === "budget" ||
+                        normalizeReportCode(reportName) === "budget")) {
+                    await updatePropertiesFiscalFromBudgetReportResponse({
+                        companyId: input.companyId,
+                        organisationId: input.organisationId,
+                        rows,
+                        filters: normalizedFilters,
+                        ...(input.fiscalYear !== undefined ? { fiscalYear: input.fiscalYear } : {}),
+                    });
+                }
                 const stagingBatch = await prisma.stagingApiBatch.create({
                     data: {
                         companyId: input.companyId,
@@ -896,32 +1049,36 @@ export async function syncEntrataReportDataJob(input) {
                         status: "RECEIVED",
                     },
                 });
+                const stagedRecords = [];
                 for (let index = 0; index < rows.length; index++) {
                     const row = rows[index];
                     if (!row) {
                         continue;
                     }
                     const sourceRecordId = buildSourceRecordId(reportDefinition.reportCode, row, sourceKeyFields, index, filters);
-                    await prisma.stagingReportData.create({
-                        data: {
-                            companyId: input.companyId,
-                            organisationId: input.organisationId,
-                            integrationSourceId: input.integrationSourceId,
-                            syncRunId: syncRun.id,
-                            stagingBatchId: stagingBatch.id,
-                            reportDefinitionId: reportDefinition.id,
-                            reportRunId: reportRun.id,
-                            reportCode: reportDefinition.reportCode,
-                            reportName,
-                            reportVersion: reportVersion ?? null,
-                            sourceRecordId,
-                            sourceHash: createSourceHash(row),
-                            rawRecordPayload: row,
-                            validationStatus: "VALID",
-                            transformStatus: "PENDING",
-                        },
+                    stagedRecords.push({
+                        companyId: input.companyId,
+                        organisationId: input.organisationId,
+                        integrationSourceId: input.integrationSourceId,
+                        syncRunId: syncRun.id,
+                        stagingBatchId: stagingBatch.id,
+                        reportDefinitionId: reportDefinition.id,
+                        reportRunId: reportRun.id,
+                        reportCode: reportDefinition.reportCode,
+                        reportName,
+                        reportVersion: reportVersion ?? null,
+                        sourceRecordId,
+                        sourceHash: createSourceHash(row),
+                        rawRecordPayload: row,
+                        validationStatus: "VALID",
+                        transformStatus: "PENDING",
                     });
-                    staged++;
+                }
+                if (stagedRecords.length > 0) {
+                    await prisma.stagingReportData.createMany({
+                        data: stagedRecords,
+                    });
+                    staged += stagedRecords.length;
                 }
                 await prisma.stagingApiBatch.update({
                     where: {
@@ -1032,6 +1189,12 @@ export async function syncEntrataReportDataJob(input) {
             recordsStaged: staged,
             recordsPendingTransform: staged,
             transformBatchSize: getNumberFromJson(syncSettings.transformBatchSize, 100),
+            propertyCodes: syncedPropertyCodes.length > 0
+                ? syncedPropertyCodes
+                : requestedPropertyIds.length > 0
+                    ? requestedPropertyIds
+                    : undefined,
+            fiscalYear: input.fiscalYear,
         };
     }
     catch (error) {

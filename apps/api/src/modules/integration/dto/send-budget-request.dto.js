@@ -17,6 +17,7 @@ export class SendBudgetRequestDto {
     dryRun;
     applyLatestChangeset;
     budgetName;
+    budgetScope;
 }
 __decorate([
     ApiProperty({
@@ -96,6 +97,17 @@ __decorate([
     }),
     __metadata("design:type", String)
 ], SendBudgetRequestDto.prototype, "budgetName", void 0);
+__decorate([
+    ApiProperty({
+        type: String,
+        enum: ["OPERATING", "CAPEX", "ALL"],
+        required: false,
+        default: "OPERATING",
+        description: "Scope of accounts to export: OPERATING (P&L only), CAPEX (Capital/Fixed Assets only), or ALL (all accounts)",
+        example: "OPERATING"
+    }),
+    __metadata("design:type", String)
+], SendBudgetRequestDto.prototype, "budgetScope", void 0);
 export class UpdateBudgetRequestDto extends SendBudgetRequestDto {
     budgetId;
 }

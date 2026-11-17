@@ -55,6 +55,10 @@ export const stageIncomeStatementActualsQueue = new PgBossQueue(QueueNames.Stage
 export const transformIncomeStatementActualsQueue = new PgBossQueue(QueueNames.TransformIncomeStatementActuals);
 export const projectIncomeStatementActualsQueue = new PgBossQueue(QueueNames.ProjectIncomeStatementActuals);
 export const processIncomeStatementPropertyQueue = new PgBossQueue(QueueNames.ProcessIncomeStatementProperty);
+export const syncBalanceSheetActualsQueue = new PgBossQueue(QueueNames.SyncBalanceSheetActuals);
+export const stageBalanceSheetActualsQueue = new PgBossQueue(QueueNames.StageBalanceSheetActuals);
+export const transformBalanceSheetActualsQueue = new PgBossQueue(QueueNames.TransformBalanceSheetActuals);
+export const projectBalanceSheetActualsQueue = new PgBossQueue(QueueNames.ProjectBalanceSheetActuals);
 export async function closeQueues() {
     await stopPgBoss();
 }

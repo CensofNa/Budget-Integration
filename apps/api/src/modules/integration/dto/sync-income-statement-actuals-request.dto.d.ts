@@ -6,13 +6,15 @@ export declare class SyncIncomeStatementActualsRequestDto {
     propertyIds?: string[];
     latestPostMonth?: string;
     glTreeId?: string;
-    glBookIds: number[];
+    glBookIds?: number[];
     accountingMethod?: "accrual" | "cash";
     periodType?: string;
     trailingPeriods?: number;
     includeDemo?: boolean;
     autoProcess?: boolean;
     updateReforecast?: boolean;
+    ownerFilter?: "all" | "livano" | "non-livano";
     reforecastCutoffMonth?: string;
+    forceAll?: boolean;
 }
 //# sourceMappingURL=sync-income-statement-actuals-request.dto.d.ts.map

@@ -55,6 +55,22 @@ export function parseDate(value) {
     const raw = getStringOrNull(value);
     if (!raw)
         return null;
+    // Handle date-only MM/DD/YYYY as UTC midnight to prevent local timezone shifts
+    const mdyMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (mdyMatch && mdyMatch[1] && mdyMatch[2] && mdyMatch[3]) {
+        const month = Number.parseInt(mdyMatch[1], 10) - 1;
+        const day = Number.parseInt(mdyMatch[2], 10);
+        const year = Number.parseInt(mdyMatch[3], 10);
+        return new Date(Date.UTC(year, month, day));
+    }
+    // Handle date-only YYYY-MM-DD as UTC midnight
+    const ymdMatch = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (ymdMatch && ymdMatch[1] && ymdMatch[2] && ymdMatch[3]) {
+        const year = Number.parseInt(ymdMatch[1], 10);
+        const month = Number.parseInt(ymdMatch[2], 10) - 1;
+        const day = Number.parseInt(ymdMatch[3], 10);
+        return new Date(Date.UTC(year, month, day));
+    }
     const parsed = new Date(raw);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
 }

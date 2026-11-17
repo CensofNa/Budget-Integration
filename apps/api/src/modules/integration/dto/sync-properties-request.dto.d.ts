@@ -4,5 +4,7 @@ export interface SyncPropertiesRequestDto {
     integrationSourceId: string;
     propertyId?: string;
     propertyIds?: string[];
+    fiscalYears?: string;
+    forceTransform?: boolean;
 }
 //# sourceMappingURL=sync-properties-request.dto.d.ts.map

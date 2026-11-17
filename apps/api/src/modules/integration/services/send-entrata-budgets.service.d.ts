@@ -5,6 +5,7 @@ export declare class SendEntrataBudgetsService {
     private readonly logger;
     execute(dto: SendBudgetRequestDto): Promise<SendBudgetResponse>;
     executeUpdate(dto: UpdateBudgetRequestDto): Promise<SendBudgetResponse>;
+    syncBudget(dto: SendBudgetRequestDto): Promise<SendBudgetResponse>;
     private executeMode;
     private fetchAndStoreEntrataBudgetId;
 }

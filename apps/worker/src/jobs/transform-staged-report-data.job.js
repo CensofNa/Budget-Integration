@@ -1,22 +1,47 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
-import { getReportTransformer } from "@budget-integration/integration-core";
+import { getReportTransformer } from "@budget-integration/domain-rent";
 export async function transformStagedReportDataJob(input = {}) {
     const batchSize = input.batchSize ?? 100;
     let totalTransformed = 0;
     let totalFailed = 0;
     let totalRecords = 0;
     /*
-     * Keep track of rows handled by this invocation. This prevents an endless
+     * Keep track of row IDs that failed during this invocation. This prevents an endless
      * loop when retryFailedRows = true and a row fails again, because it remains
      * FAILED in the database and would otherwise be fetched again immediately.
+     * Successfully transformed rows become TRANSFORMED and are excluded automatically.
      */
-    const handledRowIds = new Set();
+    const failedRowIds = new Set();
+    const propertiesCache = new Map();
+    async function getCachedProperties(companyId, organisationId) {
+        const key = `${companyId}:${organisationId}`;
+        let cached = propertiesCache.get(key);
+        if (!cached) {
+            cached = await prisma.property.findMany({
+                where: {
+                    companyId,
+                    organisationId,
+                    isDisabled: false,
+                },
+                select: {
+                    id: true,
+                    code: true,
+                    externalId: true,
+                    name: true,
+                    fiscalYearStartMonth: true,
+                    reforecastLockedTillMonth: true,
+                },
+            });
+            propertiesCache.set(key, cached);
+        }
+        return cached;
+    }
     while (true) {
         const rows = await prisma.stagingReportData.findMany({
             where: {
-                ...(handledRowIds.size > 0
-                    ? { id: { notIn: Array.from(handledRowIds) } }
+                ...(failedRowIds.size > 0
+                    ? { id: { notIn: Array.from(failedRowIds) } }
                     : {}),
                 ...(input.companyId ? { companyId: input.companyId } : {}),
                 ...(input.organisationId ? { organisationId: input.organisationId } : {}),
@@ -31,6 +56,13 @@ export async function transformStagedReportDataJob(input = {}) {
                     ? { in: ["PENDING", "FAILED"] }
                     : "PENDING"
             },
+            include: {
+                stagingBatch: {
+                    select: {
+                        rawRequest: true,
+                    },
+                },
+            },
             orderBy: {
                 stagedAt: "asc"
             },
@@ -40,13 +72,13 @@ export async function transformStagedReportDataJob(input = {}) {
             break;
         totalRecords += rows.length;
         for (const row of rows) {
-            handledRowIds.add(row.id);
             try {
                 const transformer = getReportTransformer(row.reportCode);
                 if (!transformer) {
                     throw new Error(`No transformer registered for reportCode: ${row.reportCode}`);
                 }
                 console.log(`Transforming staged report data with id: ${row.id} using transformer for reportCode: ${row.reportCode}`);
+                const cachedProperties = await getCachedProperties(row.companyId, row.organisationId);
                 await transformer(prisma, {
                     stagingReportDataId: row.id,
                     companyId: row.companyId,
@@ -55,12 +87,15 @@ export async function transformStagedReportDataJob(input = {}) {
                     reportCode: row.reportCode,
                     sourceRecordId: row.sourceRecordId,
                     sourceHash: row.sourceHash,
-                    rawRecordPayload: row.rawRecordPayload
+                    rawRecordPayload: row.rawRecordPayload,
+                    rawRequest: row.stagingBatch?.rawRequest,
+                    cachedProperties,
                 });
                 totalTransformed++;
                 console.log(`Transformed staged report: ${totalTransformed}/${totalRecords}`);
             }
             catch (error) {
+                failedRowIds.add(row.id);
                 totalFailed++;
                 console.log(`Failed to transform staged report data with id: ${row.id}. Error: ${error instanceof Error ? error.message : String(error)}. Total failed: ${totalFailed}/${totalRecords}`);
                 await prisma.stagingReportData.update({

@@ -6,12 +6,17 @@ export type SyncBudgetReportJobData = {
     budgetType?: "currentfy" | "previousfy" | string;
     targetBudgetYear?: number;
     propertyIds?: string[];
+    propertyCodes?: string[];
+    balanceSheetAccounts?: boolean;
     ownerFilter?: "all" | "livano" | "non-livano";
     glTreeId?: string;
     glBookIds?: number[];
     budgetStatus?: string;
     includeZeroBalance?: boolean;
     autoProcess?: boolean;
+    updateFiscalConfig?: boolean;
+    stream?: boolean;
+    onProgress?: (message: string) => void;
 };
 export type SyncBudgetReportJobResult = {
     syncRunId: string;
@@ -37,5 +42,6 @@ export declare function resolveBudgetReportYears(input: {
     referenceFiscalYear: number;
     targetBudgetYear: number;
 };
+export declare function updatePropertyFiscalConfigFromReportPayload(propertyId: string, responsePayload: any, explicitTargetBudgetYear?: number): Promise<void>;
 export declare function syncEntrataBudgetReportJob(data: SyncBudgetReportJobData): Promise<SyncBudgetReportJobResult>;
 //# sourceMappingURL=sync-entrata-budget-report.job.d.ts.map

@@ -1,5 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
+import { createLogger } from "@budget-integration/integration-core";
+const logger = createLogger("rent-details-service", prisma);
 const masterNames = {
     totalUnits: "Total Units",
     beginningOccPct: "Beginning Occ. - %",
@@ -126,21 +128,24 @@ async function ensureAllOccupancyDetailRows(input) {
     const masterIdByName = new Map();
     for (const master of masters) {
         masterIdByName.set(master.descriptionName, master.id);
-        // Insert every occupancy_master row for the UI grid.
-        // Method is always manual as requested. Report projection only fills month values.
-        await prisma.occupancyTransactionDetail.upsert({
-            where: {
-                occupancyTransactionId_occupancyMasterId: {
-                    occupancyTransactionId: input.transactionId,
-                    occupancyMasterId: master.id,
-                },
-            },
-            update: {
-                method: "manual",
-            },
-            create: {
-                occupancy_transaction_id: input.transactionId,
-                occupancy_master_id: master.id,
+    }
+    const existingDetails = await prisma.occupancyTransactionDetail.findMany({
+        where: {
+            occupancyTransactionId: input.transactionId,
+        },
+        select: {
+            occupancyMasterId: true,
+        },
+    });
+    const existingMasterIds = new Set(existingDetails
+        .map((detail) => detail.occupancyMasterId)
+        .filter((id) => !!id));
+    const missingMasters = masters.filter((master) => !existingMasterIds.has(master.id));
+    if (missingMasters.length > 0) {
+        await prisma.occupancyTransactionDetail.createMany({
+            data: missingMasters.map((master) => ({
+                occupancyTransactionId: input.transactionId,
+                occupancyMasterId: master.id,
                 method: "manual",
                 jan: null,
                 feb: null,
@@ -154,8 +159,9 @@ async function ensureAllOccupancyDetailRows(input) {
                 oct: null,
                 nov: null,
                 dec: null,
-                full_year: null,
-            },
+                fullYear: null,
+            })),
+            skipDuplicates: true,
         });
     }
     return masterIdByName;
@@ -196,11 +202,11 @@ async function upsertDetail(input) {
             oct: input.values.oct,
             nov: input.values.nov,
             dec: input.values.dec,
-            full_year: fullYear,
+            fullYear,
         },
         create: {
-            occupancy_transaction_id: input.transactionId,
-            occupancy_master_id: input.masterId,
+            occupancyTransactionId: input.transactionId,
+            occupancyMasterId: input.masterId,
             method: "manual",
             jan: input.values.jan,
             feb: input.values.feb,
@@ -214,7 +220,7 @@ async function upsertDetail(input) {
             oct: input.values.oct,
             nov: input.values.nov,
             dec: input.values.dec,
-            full_year: fullYear,
+            fullYear,
         },
     });
 }
@@ -240,6 +246,7 @@ export async function projectOccupancyFromReportsJob(input) {
             id: true,
             code: true,
             fiscalYearStartMonth: true,
+            reforecastLockedTillMonth: true,
         },
     });
     const startMonth = property?.fiscalYearStartMonth &&
@@ -300,6 +307,35 @@ export async function projectOccupancyFromReportsJob(input) {
             orderBy: { reportMonth: "asc" },
         }),
     ]);
+    // Execute fn_sync_box_score_to_reforecast only when updateReforecast is explicitly true
+    if (input.updateReforecast === true) {
+        try {
+            await prisma.$queryRawUnsafe(`SELECT * FROM public.fn_sync_box_score_to_reforecast($1::uuid, $2::uuid, $3::uuid, $4::integer, $5::varchar)`, input.companyId, input.organisationId, input.propertyId, input.budgetYear, input.reforecastPostMonth ?? null);
+            await logger.info(`Successfully synced actuals to occupancy reforecast via fn_sync_box_score_to_reforecast for property ${input.propertyId}`, {
+                action: "SYNC_BOX_SCORE_REFORECAST_SUCCESS",
+                entityName: "Occupancy",
+                companyId: input.companyId,
+                organisationId: input.organisationId,
+                contextJson: {
+                    propertyId: input.propertyId,
+                    budgetYear: input.budgetYear,
+                    reforecastPostMonth: input.reforecastPostMonth ?? null
+                }
+            });
+        }
+        catch (reforecastErr) {
+            await logger.error(`Failed to sync actuals to occupancy reforecast for property ${input.propertyId}`, reforecastErr, {
+                action: "SYNC_BOX_SCORE_REFORECAST_FAILED",
+                entityName: "Occupancy",
+                companyId: input.companyId,
+                organisationId: input.organisationId,
+                contextJson: {
+                    propertyId: input.propertyId,
+                    budgetYear: input.budgetYear
+                }
+            });
+        }
+    }
     const byMonth = new Map();
     const priorByMonth = new Map();
     for (const row of currentBoxRows) {

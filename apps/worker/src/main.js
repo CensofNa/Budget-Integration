@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { prisma } from "@budget-integration/database";
 import * as readline from "readline";
-import { releaseActiveSyncLocks, startPgBoss } from "@budget-integration/integration-core";
+import { releaseActiveSyncLocks, startPgBoss, stopPgBoss } from "@budget-integration/integration-core";
 import { cloneDemoPropertyJob } from "./jobs/clone-demo-property.job.js";
 import { transformStagedPropertiesJob } from "./jobs/transform-staged-properties.job.js";
 import { registerEntrataPropertySchedulers } from "./schedulers/entrata-property.scheduler.js";
@@ -13,22 +13,16 @@ import { registerEntrataGlTreeSchedulers } from "./schedulers/entrata-gl-tree.sc
 import { registerEntrataBudgetActualSchedulers } from "./schedulers/entrata-budget-actual.scheduler.js";
 import { resetReportSyncState } from "./helpers/reset-report-sync-state.js";
 // Importing the queues here is safe. These imports only create queue handles.
-// The actual BullMQ workers are started only when the processor files are imported
+// The actual pg-boss workers are started only when the processor files are imported
 // in loadProcessorsForMode().
 import { syncPropertyQueue, syncPropertyUnitQueue, syncUnitTypeQueue, syncBudgetQueue, syncReportDataQueue, syncGlTreeQueue, syncBudgetActualQueue, transformBudgetActualStagingQueue, projectBudgetActualSnapshotsQueue } from "@budget-integration/integration-core";
-const workerModes = [
-    "ALL",
-    "INCOME_STATEMENT_ONLY",
-    "BUDGET_REPORT_ONLY",
-    "REPORT_ONLY",
-    "BUDGET_ACTUAL_ONLY",
-    "BUDGET_ONLY",
-    "PROPERTY_ONLY",
-    "PROPERTY_UNIT_ONLY",
-    "UNIT_TYPE_ONLY",
-    "GL_TREE_ONLY",
-    "NONE",
-];
+import { workerModes, loadProcessorsForMode } from "./domain-worker-loader.js";
+function isNonInteractiveEnv() {
+    return (Boolean(process.env.WORKER_MODE?.trim()) ||
+        process.env.NODE_ENV === "production" ||
+        process.env.NON_INTERACTIVE === "true" ||
+        !process.stdin.isTTY);
+}
 function askQuestion(question) {
     return new Promise((resolve) => {
         const rl = readline.createInterface({
@@ -42,15 +36,22 @@ function askQuestion(question) {
     });
 }
 async function askConfirmation(question) {
+    if (isNonInteractiveEnv()) {
+        return true;
+    }
     const answer = await askQuestion(question);
     return answer.toLowerCase() === "yes" || answer.toLowerCase() === "y";
 }
 async function askWorkerMode() {
-    // Optional override still supported for automated runs/PM2/docker.
+    // Optional override supported for automated runs/PM2/docker.
     // For local manual runs, leave WORKER_MODE empty and choose from console.
     const envMode = process.env.WORKER_MODE?.trim().toUpperCase();
     if (envMode && workerModes.includes(envMode)) {
         return envMode;
+    }
+    if (isNonInteractiveEnv()) {
+        console.log("Non-interactive mode detected without valid WORKER_MODE; defaulting to ALL.");
+        return "ALL";
     }
     console.log("\nSelect worker module to run:");
     workerModes.forEach((mode, index) => {
@@ -71,84 +72,10 @@ async function askWorkerMode() {
     console.warn(`Invalid worker module '${answer}'. Defaulting to REPORT_ONLY.`);
     return "REPORT_ONLY";
 }
-async function loadProcessorsForMode(workerMode) {
-    console.log("Worker mode:", workerMode);
-    if (workerMode === "INCOME_STATEMENT_ONLY") {
-        await import("./processors/sync-income-statement-actuals.processor.js");
-        await import("./processors/stage-income-statement-actuals.processor.js");
-        await import("./processors/transform-income-statement-actuals.processor.js");
-        await import("./processors/project-income-statement-actuals.processor.js");
-        await import("./processors/process-income-statement-property.processor.js");
-        return;
-    }
-    if (workerMode === "BUDGET_REPORT_ONLY") {
-        console.log("Budget Report pipeline worker mode active.");
-        return;
-    }
-    if (workerMode === "REPORT_ONLY") {
-        await import("./processors/sync-report-data.processor.js");
-        await import("./processors/transform-report-data-staging.processor.js");
-        await import("./processors/project-occupancy-from-reports.processor.js");
-        return;
-    }
-    if (workerMode === "BUDGET_ACTUAL_ONLY") {
-        await import("./processors/sync-budget-actuals.processor.js");
-        await import("./processors/transform-budget-actual-staging.processor.js");
-        await import("./processors/project-budget-actual-snapshots.processor.js");
-        return;
-    }
-    if (workerMode === "BUDGET_ONLY") {
-        await import("./processors/sync-budgets.processor.js");
-        await import("./processors/transform-budget-staging.processor.js");
-        return;
-    }
-    if (workerMode === "PROPERTY_ONLY") {
-        await import("./processors/sync-property.processor.js");
-        await import("./processors/transform-property-staging.processor.js");
-        return;
-    }
-    if (workerMode === "PROPERTY_UNIT_ONLY") {
-        await import("./processors/sync-property-units.processor.js");
-        await import("./processors/transform-property-unit-staging.processor.js");
-        return;
-    }
-    if (workerMode === "UNIT_TYPE_ONLY") {
-        await import("./processors/sync-unit-types.processor.js");
-        await import("./processors/transform-unit-type-staging.processor.js");
-        return;
-    }
-    if (workerMode === "GL_TREE_ONLY") {
-        await import("./processors/sync-gl-trees.processor.js");
-        await import("./processors/transform-gl-tree-staging.processor.js");
-        return;
-    }
-    // ALL mode: use this only when you intentionally want the worker to process
-    // every queue that already has waiting/delayed/retry jobs in Redis.
-    await import("./processors/sync-property.processor.js");
-    await import("./processors/transform-property-staging.processor.js");
-    await import("./processors/sync-property-units.processor.js");
-    await import("./processors/transform-property-unit-staging.processor.js");
-    await import("./processors/sync-unit-types.processor.js");
-    await import("./processors/transform-unit-type-staging.processor.js");
-    await import("./processors/sync-budgets.processor.js");
-    await import("./processors/transform-budget-staging.processor.js");
-    await import("./processors/sync-report-data.processor.js");
-    await import("./processors/transform-report-data-staging.processor.js");
-    await import("./processors/project-occupancy-from-reports.processor.js");
-    await import("./processors/sync-gl-trees.processor.js");
-    await import("./processors/transform-gl-tree-staging.processor.js");
-    await import("./processors/sync-budget-actuals.processor.js");
-    await import("./processors/transform-budget-actual-staging.processor.js");
-    await import("./processors/project-budget-actual-snapshots.processor.js");
-    await import("./processors/sync-income-statement-actuals.processor.js");
-    await import("./processors/stage-income-statement-actuals.processor.js");
-    await import("./processors/transform-income-statement-actuals.processor.js");
-    await import("./processors/project-income-statement-actuals.processor.js");
-    await import("./processors/process-income-statement-property.processor.js");
-}
 async function shutdown(signal) {
-    console.log(`${signal} received, releasing sync locks...`);
+    console.log(`${signal} received, releasing sync locks and stopping pg-boss...`);
     await releaseActiveSyncLocks();
+    await stopPgBoss();
     process.exit(0);
 }
 // async function enqueueBudgetActualTransformForSyncRun(syncRunId: string) {

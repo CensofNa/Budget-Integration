@@ -1,3 +1,4 @@
+import type { ServerResponse } from "node:http";
 import type { SyncBudgetActualRequestDto } from "./dto/sync-budget-actual-request.dto.js";
 import type { ProjectIncomeStatementActualsRequestDto } from "./dto/project-income-statement-actuals-request.dto.js";
 import type { StageIncomeStatementActualsRequestDto } from "./dto/stage-income-statement-actuals-request.dto.js";
@@ -15,6 +16,8 @@ import type { SyncGlTreeRequestDto } from "./dto/sync-gl-tree-request.dto.js";
 import type { TransformBudgetsRequestDto } from "./dto/transform-budgets-request.dto.js";
 import { SyncReportDataRequestDto } from "./dto/sync-report-data-request.dto.js";
 import { SyncPropertyClosingsRequestDto } from "./dto/sync-property-closings-request.dto.js";
+import { SyncBalanceSheetActualsRequestDto } from "./dto/sync-balance-sheet-actuals-request.dto.js";
+import { StageBalanceSheetActualsRequestDto, TransformBalanceSheetActualsRequestDto, ProjectBalanceSheetActualsRequestDto } from "./dto/balance-sheet-actuals-pipeline-request.dto.js";
 import { SendBudgetRequestDto, UpdateBudgetRequestDto, type SendBudgetResponse } from "./dto/send-budget-request.dto.js";
 import { SendEntrataBudgetsService } from "./services/send-entrata-budgets.service.js";
 type QueueResponse = {
@@ -65,7 +68,7 @@ export declare class IntegrationSyncController {
     stageIncomeStatementActuals(body: StageIncomeStatementActualsRequestDto): Promise<QueueResponse>;
     transformIncomeStatementActuals(body: TransformIncomeStatementActualsRequestDto): Promise<QueueResponse>;
     projectIncomeStatementActuals(body: ProjectIncomeStatementActualsRequestDto): Promise<QueueResponse>;
-    syncBudgetReport(body: SyncBudgetReportRequestDto): Promise<import("../../../../worker/src/jobs/sync-entrata-budget-report.job.js").SyncBudgetReportJobResult>;
+    syncBudgetReport(body: SyncBudgetReportRequestDto, res?: ServerResponse): Promise<void | import("../../../../worker/src/jobs/sync-entrata-budget-report.job.js").SyncBudgetReportJobResult>;
     stageBudgetReport(body: StageBudgetReportRequestDto): Promise<{
         syncRunId: string | undefined;
         stagedCount: any;
@@ -99,8 +102,62 @@ export declare class IntegrationSyncController {
         syncedCount: number;
         errors: string[];
     }>;
+    sendOrUpdateBudgets(body: SendBudgetRequestDto, queryPropertyId?: string, queryFiscalYear?: string, queryDryRun?: string): Promise<SendBudgetResponse>;
     sendBudgets(body: SendBudgetRequestDto): Promise<SendBudgetResponse>;
     updateBudgets(body: UpdateBudgetRequestDto): Promise<SendBudgetResponse>;
+    syncBalanceSheetActuals(body: SyncBalanceSheetActualsRequestDto, res?: ServerResponse): Promise<any>;
+    stageBalanceSheetActuals(body: StageBalanceSheetActualsRequestDto): Promise<any>;
+    transformBalanceSheetActuals(body: TransformBalanceSheetActualsRequestDto): Promise<any>;
+    projectBalanceSheetActuals(body: ProjectBalanceSheetActualsRequestDto): Promise<any>;
+    getSyncRunStatus(syncRunId: string): Promise<{
+        success: boolean;
+        message: string;
+        syncRunId?: never;
+        entityName?: never;
+        status?: never;
+        startedAt?: never;
+        completedAt?: never;
+        progress?: never;
+        currentlyProcessing?: never;
+        recentCompleted?: never;
+        failedProperties?: never;
+    } | {
+        success: boolean;
+        syncRunId: string;
+        entityName: string;
+        status: string;
+        startedAt: Date;
+        completedAt: Date | null;
+        progress: {
+            totalProperties: number;
+            completed: number;
+            processing: number;
+            queuedOrPending: number;
+            failed: number;
+            percentComplete: string;
+        };
+        currentlyProcessing: {
+            propertyCode: string;
+            propertyId: string | null;
+            stage: string;
+            startedAt: Date | null;
+        }[];
+        recentCompleted: {
+            propertyCode: string;
+            actualRowsUpserted: number;
+            calcLinesUpserted: number;
+            completedAt: Date | null;
+        }[];
+        failedProperties: {
+            propertyCode: string;
+            errorMessage: string | null;
+        }[];
+        message?: never;
+    }>;
+    syncIncomeStatementActualsStream(body: SyncIncomeStatementActualsRequestDto, res: ServerResponse): Promise<void>;
+    syncBalanceSheetActualsStream(body: SyncBalanceSheetActualsRequestDto, res: ServerResponse): Promise<void>;
+    syncBudgetReportStream(body: SyncBudgetReportRequestDto, res: ServerResponse): Promise<void>;
+    syncBudgetStreamAlias(body: SyncBudgetReportRequestDto, res: ServerResponse): Promise<void>;
 }
 export {};
 //# sourceMappingURL=integration-sync.controller.d.ts.map

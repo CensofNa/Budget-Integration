@@ -25,7 +25,7 @@ export async function stageBudgetReportJob(data) {
         '${data.integrationSourceId}'::uuid,
         ${data.syncRunId ? `'${data.syncRunId}'::uuid` : "NULL::uuid"},
         NULL::uuid,
-        2026
+        NULL::integer
       );
     `);
     }

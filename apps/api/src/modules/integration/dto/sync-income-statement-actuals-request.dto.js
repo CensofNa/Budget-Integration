@@ -23,7 +23,9 @@ export class SyncIncomeStatementActualsRequestDto {
     includeDemo;
     autoProcess;
     updateReforecast;
+    ownerFilter;
     reforecastCutoffMonth;
+    forceAll;
 }
 __decorate([
     ApiProperty({ type: String, description: "The UUID of the company" }),
@@ -54,7 +56,7 @@ __decorate([
     __metadata("design:type", String)
 ], SyncIncomeStatementActualsRequestDto.prototype, "glTreeId", void 0);
 __decorate([
-    ApiProperty({ type: [Number], description: "List of GL Book IDs to sync" }),
+    ApiPropertyOptional({ type: [Number], default: [1909], description: "List of GL Book IDs to sync (defaults to [1909])" }),
     __metadata("design:type", Array)
 ], SyncIncomeStatementActualsRequestDto.prototype, "glBookIds", void 0);
 __decorate([
@@ -82,7 +84,24 @@ __decorate([
     __metadata("design:type", Boolean)
 ], SyncIncomeStatementActualsRequestDto.prototype, "updateReforecast", void 0);
 __decorate([
+    ApiPropertyOptional({
+        type: String,
+        enum: ["all", "livano", "non-livano"],
+        default: "all",
+        description: "Filter properties by owner (Livano vs Non-Livano). Defaults to 'all'.",
+    }),
+    __metadata("design:type", String)
+], SyncIncomeStatementActualsRequestDto.prototype, "ownerFilter", void 0);
+__decorate([
     ApiPropertyOptional({ type: String, description: "Reforecast cutoff month (e.g. 2026-06)" }),
     __metadata("design:type", String)
 ], SyncIncomeStatementActualsRequestDto.prototype, "reforecastCutoffMonth", void 0);
+__decorate([
+    ApiPropertyOptional({
+        type: Boolean,
+        default: false,
+        description: "When true, forces sync of all properties regardless of whether gl_locked_through has changed. Defaults to false (only syncs properties where is_gl_locked_changed = true when propertyIds is omitted).",
+    }),
+    __metadata("design:type", Boolean)
+], SyncIncomeStatementActualsRequestDto.prototype, "forceAll", void 0);
 //# sourceMappingURL=sync-income-statement-actuals-request.dto.js.map

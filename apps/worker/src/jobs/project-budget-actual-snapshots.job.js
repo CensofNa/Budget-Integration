@@ -1,5 +1,5 @@
 import { prisma } from "@budget-integration/database";
-import { projectBudgetActualSnapshotsFromImportedActuals } from "@budget-integration/integration-core";
+import { projectBudgetActualSnapshotsFromImportedActuals } from "@budget-integration/domain-budget";
 /**
  * Projects imported Entrata actuals (property_budget_actuals) into final budget
  * planning tables.

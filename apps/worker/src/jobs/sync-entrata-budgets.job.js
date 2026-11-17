@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
-import { asArray, asObject, chunkArray, createSourceHash, getCredentialValue, getNumberFromJson, getSecretManager, getString, IntegrationError } from "@budget-integration/integration-core";
+import { asArray, asObject, chunkArray, createSourceHash, getCredentialValue, getNumberFromJson, getSecretManager, getString, parseDate, IntegrationError, resolveSystemAdminUserId } from "@budget-integration/integration-core";
 import { EntrataBudgetConnector } from "@budget-integration/connector-entrata";
 function getProperties(response) {
     const root = asObject(response);
@@ -105,26 +105,6 @@ export async function syncEntrataBudgetsJob(input = {}) {
     }, {
         apiKey
     });
-    // const propertyMaps = await prisma.sourceRecordMap.findMany({
-    //   where: {
-    //     companyId: source.companyId,
-    //     organisationId: source.organisationId,
-    //     integrationSourceId: source.id,
-    //     entityName: "Property",
-    //     canonicalTableName: "properties",
-    //     matchStatus: {
-    //       in: ["AUTO_MATCHED", "MANUAL_MATCHED"]
-    //     }
-    //   },
-    //   distinct: ["sourceRecordId"],
-    //   orderBy: {
-    //     sourceRecordId: "asc"
-    //   }
-    // });
-    // const propertyIds = propertyMaps
-    //   .map((propertyMap) => propertyMap.sourceRecordId)
-    //   .filter((value): value is string => !!value && value.trim().length > 0)
-    //   .filter((value) => !input.propertyId || value === input.propertyId);
     const parsedRequestedIds = (() => {
         if (input.propertyIds) {
             if (Array.isArray(input.propertyIds)) {
@@ -148,6 +128,7 @@ export async function syncEntrataBudgetsJob(input = {}) {
             organisationId: source.organisationId
         },
         select: {
+            id: true,
             code: true,
             externalId: true
         }
@@ -238,6 +219,65 @@ export async function syncEntrataBudgetsJob(input = {}) {
                             continue;
                         }
                         totalReceived++;
+                        // Ensure properties table fiscal configuration is updated from fiscalStartDate and fiscalEndDate
+                        const fiscalStartDate = parseDate(budget.fiscalStartDate);
+                        const fiscalEndDate = parseDate(budget.fiscalEndDate);
+                        const parsedFiscalYear = getFiscalYearValue(budget.fiscalYear);
+                        if (input.updateFiscalConfig && fiscalStartDate && fiscalEndDate) {
+                            const startMonth = fiscalStartDate.getUTCMonth() + 1;
+                            const endMonth = fiscalEndDate.getUTCMonth() + 1;
+                            const budgetYearType = startMonth === 1 ? "CALENDAR_YEAR" : "FISCAL_YEAR";
+                            const numericPropId = Number.parseInt(sourcePropertyId, 10);
+                            const validNumericPropId = Number.isInteger(numericPropId) && numericPropId > 0 ? numericPropId : null;
+                            const targetProp = await prisma.property.findFirst({
+                                where: {
+                                    companyId: source.companyId,
+                                    organisationId: source.organisationId,
+                                    OR: [
+                                        { code: sourcePropertyId },
+                                        ...(validNumericPropId !== null ? [{ externalId: validNumericPropId }] : [])
+                                    ]
+                                },
+                                select: {
+                                    id: true,
+                                    budgetYear: true,
+                                    budgetYearType: true,
+                                    fiscalYearStartMonth: true,
+                                    fiscalYearEndMonth: true,
+                                    fiscalYearStartDate: true,
+                                    fiscalYearEndDate: true
+                                }
+                            });
+                            if (targetProp) {
+                                const targetBudgetYear = new Date().getUTCFullYear() + 1;
+                                const targetFiscalStartDate = new Date(Date.UTC(targetBudgetYear, startMonth - 1, 1));
+                                const targetFiscalEndDate = new Date(Date.UTC(endMonth < startMonth ? targetBudgetYear + 1 : targetBudgetYear, endMonth, 0));
+                                const isFiscalUnchanged = targetProp.budgetYear === targetBudgetYear &&
+                                    targetProp.budgetYearType === budgetYearType &&
+                                    targetProp.fiscalYearStartMonth === startMonth &&
+                                    targetProp.fiscalYearEndMonth === endMonth &&
+                                    targetProp.fiscalYearStartDate?.toISOString().slice(0, 10) === targetFiscalStartDate.toISOString().slice(0, 10) &&
+                                    targetProp.fiscalYearEndDate?.toISOString().slice(0, 10) === targetFiscalEndDate.toISOString().slice(0, 10);
+                                if (!isFiscalUnchanged) {
+                                    const systemAdminUserId = await resolveSystemAdminUserId(prisma);
+                                    await prisma.property.update({
+                                        where: { id: targetProp.id },
+                                        data: {
+                                            budgetYear: targetBudgetYear,
+                                            budgetYearType,
+                                            fiscalYearStartMonth: startMonth,
+                                            fiscalYearEndMonth: endMonth,
+                                            fiscalYearStartDate: targetFiscalStartDate,
+                                            fiscalYearEndDate: targetFiscalEndDate,
+                                            updatedSource: "ENTRATA",
+                                            ...(systemAdminUserId ? { updatedBy: systemAdminUserId } : {})
+                                        }
+                                    });
+                                    console.log(`[SyncEntrataBudgetsJob] Updated Property ${sourcePropertyId} (${targetProp.id}) fiscal config: ` +
+                                        `budgetYear=${targetBudgetYear}, type=${budgetYearType}, start=${targetFiscalStartDate.toISOString().slice(0, 10)}, end=${targetFiscalEndDate.toISOString().slice(0, 10)}`);
+                                }
+                            }
+                        }
                         const budgetPayload = {
                             property,
                             budget
@@ -272,7 +312,7 @@ export async function syncEntrataBudgetsJob(input = {}) {
                                 sourcePropertyId,
                                 sourceBudgetId,
                                 budgetName: getString(budget.budgetName) ?? null,
-                                fiscalYear: getFiscalYearValue(budget.fiscalYear),
+                                fiscalYear: parsedFiscalYear,
                                 sourceHash,
                                 rawBudgetPayload: budgetPayload,
                                 validationStatus: isUnchanged ? "VALID" : "PENDING",

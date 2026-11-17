@@ -9,7 +9,7 @@ export class EntrataReportsConnector extends BaseEntrataConnector {
             methodName: "getReportData",
             methodVersion: options.methodVersion ?? "r2",
             requestId: options.requestId,
-            timeoutMs: options.timeoutMs ?? 30000,
+            timeoutMs: options.timeoutMs ?? (options.reportName === "balance_sheet" ? 120000 : 30000),
             maxRetries: options.maxRetries ?? 3,
             retryBaseDelayMs: options.retryBaseDelayMs ?? 60000,
             params: {

@@ -65,11 +65,10 @@ export async function syncEntrataPropertyUnitsJob(input = {}) {
     if (!orgSlug) {
         throw new Error("Entrata orgSlug is missing in IntegrationSourceConfig.connectionJson.");
     }
-    // const propertyBatchSize =
-    //   input.propertyBatchSize ??
-    //   getNumberFromJson(syncSettings?.propertyUnitBatchSize, 1);
-    const propertyBatchSize = input.propertyBatchSize ??
-        getNumberFromJson(syncSettings?.propertyUnitBatchSize, 10);
+    // Entrata's getPropertyUnits API returns HTTP 400 (code 310:
+    // "This service is limited to a single property, unless requesting available units only.")
+    // whenever multiple propertyIds are sent with availableUnitsOnly = false ("0").
+    const propertyBatchSize = 1;
     const propertyMaps = await prisma.sourceRecordMap.findMany({
         where: {
             companyId: source.companyId,

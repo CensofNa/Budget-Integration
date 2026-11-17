@@ -5,6 +5,7 @@ export interface TransformStagedPropertiesJobInput {
     syncRunId?: string;
     stagingBatchId?: string;
     batchSize?: number;
+    updateFiscalConfig?: boolean | undefined;
 }
 export declare function transformStagedPropertiesJob(input?: TransformStagedPropertiesJobInput): Promise<{
     transformed: number;
