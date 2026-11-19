@@ -21,7 +21,8 @@
     "prisma:sync": "tsx scripts/sync-prisma-schema.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "build": "node scripts/build-dist.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts",
@@ -35,8 +36,6 @@
   "devDependencies": {
     "@types/node": "^25.6.0",
     "concurrently": "^10.0.3",
-    "dotenv": "^17.4.2",
-    "prisma": "6.6.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   },
@@ -48,7 +47,9 @@
     "@prisma/client": "6.6.0",
     "argon2": "^0.41.1",
     "axios": "^1.16.0",
+    "dotenv": "^17.4.2",
     "pg-boss": "^12.35.0",
+    "prisma": "6.6.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "swagger-ui-express": "^5.0.1"

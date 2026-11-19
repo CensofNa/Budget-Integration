@@ -305,6 +305,31 @@ npm run pm2:reload:budget        # Port 3002
 npm run pm2:reload:rent-details  # Port 3003
 ```
 
+### Deploying a Built `dist/` (FileZilla / no git on server)
+`npm run build` ([`scripts/build-dist.mjs`](./scripts/build-dist.mjs)) produces a self-contained `dist/`: compiled JS, every workspace `package.json` (entry points rewritten `.ts` → `.js`), `package-lock.json`, `prisma/`, and an `ecosystem.config.cjs` that runs plain `node` (no `tsx`).
+
+`node_modules` is **not** shipped — `argon2` and the Prisma engine must be built on Linux, and npm workspace symlinks don't survive FTP.
+
+```bash
+# Local (Windows)
+npm run build
+# Upload the CONTENTS of dist/ to /var/www/budgetapplication/budget-integration/
+```
+
+```bash
+# Server — first time
+cd /var/www/budgetapplication/budget-integration
+cp .env.example .env && nano .env            # DATABASE_URL, ENTRATA_*, ports
+npm ci --omit=dev && npx prisma generate
+pm2 start ecosystem.config.cjs && pm2 save && pm2 startup
+
+# Server — every update (after uploading the new dist/ contents)
+npm ci --omit=dev && npx prisma generate     # only if package-lock.json / prisma/ changed
+pm2 reload ecosystem.config.cjs              # or: pm2 reload budget-service
+```
+
+Swagger for each service: `http://<host>:<port>/api`.
+
 ### Monitoring & Logs
 ```bash
 # Real-time logs for all services

@@ -1,0 +1,20 @@
+{
+  // Production build used by `npm run build` (scripts/build-dist.mjs).
+  // Emits plain JS into dist/ mirroring the repo layout, so relative imports
+  // like ../../worker/src/*.js keep working.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "./dist",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noEmitOnError": true
+  },
+  "include": [
+    "apps/*/src/**/*.ts",
+    "packages/*/src/**/*.ts",
+    "packages/connectors/*/src/**/*.ts"
+  ],
+  "exclude": ["**/*.d.ts", "**/node_modules/**", "dist/**"]
+}
