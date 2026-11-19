@@ -8,5 +8,14 @@ export declare function transformBoxScoreReport(prisma: PrismaClient, input: {
     sourceRecordId: string;
     sourceHash?: string | null;
     rawRecordPayload: unknown;
+    rawRequest?: unknown;
+    cachedProperties?: Array<{
+        id: string;
+        code: string | null;
+        externalId: number | null;
+        name: string | null;
+        fiscalYearStartMonth: number | null;
+        reforecastLockedTillMonth?: number | null;
+    }>;
 }): Promise<void>;
 //# sourceMappingURL=box-score.transformer.d.ts.map

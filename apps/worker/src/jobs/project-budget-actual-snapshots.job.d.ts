@@ -1,4 +1,4 @@
-import { type ProjectBudgetActualSnapshotsResult } from "@budget-integration/integration-core";
+import { type ProjectBudgetActualSnapshotsResult } from "@budget-integration/domain-budget";
 export interface ProjectBudgetActualSnapshotsJobInput {
     companyId: string;
     organisationId: string;

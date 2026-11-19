@@ -90,6 +90,18 @@ export async function transformIncomeStatementActualsJob(data) {
             projectJobId: projectJob.id,
         });
     }
+    try {
+        const deletedStagingCount = await prisma.stagingIncomeStatementActual.deleteMany({
+            where: {
+                syncRunId: data.syncRunId,
+                transformStatus: "TRANSFORMED",
+            },
+        });
+        console.log(`[INFO] Cleaned up ${deletedStagingCount.count} TRANSFORMED staging rows for syncRunId ${data.syncRunId}.`);
+    }
+    catch (purgeError) {
+        console.warn(`[WARN] Failed to purge TRANSFORMED staging rows for syncRunId ${data.syncRunId}:`, purgeError);
+    }
     console.log("[INFO] IncomeStatementActuals transform completed.", {
         syncRunId: data.syncRunId,
         insertedCount,

@@ -293,6 +293,20 @@ export async function syncEntrataBudgetsJob(
 
       const requestId = `entrata-budgets--${propertyIdsForRequest}--${Date.now()}-${batchIndex + 1}`;
 
+      const rawRequestPayload = {
+        auth: { type: "apikey" },
+        requestId,
+        method: {
+          name: "getBudgets",
+          params: {
+            propertyIds: propertyIdsForRequest,
+            budgetIds,
+            budgetStatusTypeIds,
+            fiscalYears
+          }
+        }
+      };
+
       console.log(
         `Calling getBudgets batch ${batchIndex + 1}/${propertyIdBatches.length}. PropertyIds: ${propertyIdsForRequest}`
       );
@@ -316,13 +330,7 @@ export async function syncEntrataBudgetsJob(
             sourceMethod: "getBudgets",
             requestId,
             responseCode: 200,
-            rawRequest: {
-              method: "getBudgets",
-              propertyIds: propertyIdsForRequest,
-              budgetIds,
-              budgetStatusTypeIds,
-              fiscalYears
-            },
+            rawRequest: rawRequestPayload,
             rawResponse: response as Prisma.InputJsonValue,
             status: "RECEIVED"
           }
@@ -485,8 +493,45 @@ export async function syncEntrataBudgetsJob(
         console.log(
           `Completed getBudgets batch ${batchIndex + 1}/${propertyIdBatches.length}.`
         );
-      } catch (error) {
+      } catch (error: unknown) {
         totalFailed++;
+
+        let statusCode = 500;
+        let errorResponse: any = null;
+        let errorMessage = "Unknown error occurred while contacting Entrata";
+
+        if (error && typeof error === "object" && "isAxiosError" in error) {
+          const axiosErr = error as any;
+          statusCode = axiosErr.response?.status ?? 502;
+          errorResponse = axiosErr.response?.data ?? (axiosErr.response?.statusText ? { statusText: axiosErr.response.statusText } : null);
+          errorMessage = axiosErr.message;
+        } else if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+
+        try {
+          await prisma.stagingApiBatch.create({
+            data: {
+              companyId: source.companyId,
+              organisationId: source.organisationId,
+              integrationSourceId: source.id,
+              syncRunId: syncRun.id,
+              entityName: "Budget",
+              sourceMethod: "getBudgets",
+              requestId,
+              responseCode: statusCode,
+              rawRequest: rawRequestPayload,
+              rawResponse: (errorResponse ?? { error: errorMessage }) as Prisma.InputJsonValue,
+              status: "FAILED",
+              errorMessage
+            }
+          });
+        } catch (batchErr) {
+          console.error(
+            `[Budget] Failed to record error batch in staging_api_batches for ${propertyIdsForRequest}:`,
+            batchErr
+          );
+        }
 
         console.error(
           `Budget sync failed for batch ${batchIndex + 1}/${propertyIdBatches.length}. PropertyIds: ${propertyIdsForRequest}`,

@@ -1,7 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
-import { transformEntrataProperty } from "@budget-integration/integration-core";
-import { transformEntrataPropertyUnit } from "@budget-integration/integration-core";
+import { transformEntrataProperty, transformEntrataPropertyUnit } from "@budget-integration/domain-property";
 export async function cloneDemoPropertyJob(input) {
     const { companyId, organisationId, integrationSourceId, sourcePropertyCode, targetPropertyCode, demoPropertyName } = input;
     console.log(`[clone-demo-property] Cloning property ${sourcePropertyCode} → ${targetPropertyCode}`);

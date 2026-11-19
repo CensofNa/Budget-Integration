@@ -8,6 +8,7 @@ export interface SyncEntrataBudgetsJobInput {
     budgetStatusTypeIds?: string;
     propertyId?: string;
     propertyIds?: string[] | string;
+    updateFiscalConfig?: boolean;
 }
 export interface SyncEntrataBudgetsJobResult {
     companyId: string;

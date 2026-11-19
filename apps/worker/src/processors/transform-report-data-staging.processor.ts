@@ -129,6 +129,8 @@ export const transformReportDataStagingWorker =
                 reportCode: "resident_retention",
                 propertyIds: [propertyCode],
                 ...(job.data.fiscalYear !== undefined ? { fiscalYear: job.data.fiscalYear } : {}),
+                ...(job.data.updateReforecast !== undefined ? { updateReforecast: job.data.updateReforecast } : {}),
+                ...(job.data.reforecastPostMonth ? { reforecastPostMonth: job.data.reforecastPostMonth } : {}),
                 filters: {
                   period: {
                     period_type: "currentfyr"
@@ -206,7 +208,9 @@ export const transformReportDataStagingWorker =
                   integrationSourceId: job.data.integrationSourceId,
                   entityName: "Occupancy",
                   propertyId: property.id,
-                  budgetYear
+                  budgetYear,
+                  ...(job.data.updateReforecast !== undefined ? { updateReforecast: job.data.updateReforecast } : {}),
+                  ...(job.data.reforecastPostMonth ? { reforecastPostMonth: job.data.reforecastPostMonth } : {})
                 },
                 {
                   attempts: 3,

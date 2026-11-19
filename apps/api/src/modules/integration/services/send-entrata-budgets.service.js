@@ -19,20 +19,138 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
     async executeUpdate(dto) {
         return this.executeMode("UPDATE", dto);
     }
+    async syncBudget(dto) {
+        const propertyId = dto.propertyId;
+        if (!propertyId) {
+            throw new BadRequestException({
+                success: false,
+                statusCode: 400,
+                message: "propertyId is required."
+            });
+        }
+        const fiscalYear = dto.fiscalYear ?? 2027;
+        const dryRun = dto.dryRun !== undefined ? Boolean(dto.dryRun) : true;
+        const budgetScope = dto.budgetScope ?? "OPERATING";
+        // 1. Resolve internal property
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(propertyId);
+        const property = isUuid
+            ? await prisma.property.findUnique({ where: { id: propertyId } })
+            : await prisma.property.findFirst({ where: { code: propertyId } });
+        if (!property) {
+            throw new NotFoundException({
+                success: false,
+                statusCode: 404,
+                message: `Property '${propertyId}' not found in internal database.`,
+                propertyId
+            });
+        }
+        const internalPropertyId = property.id;
+        const internalPropertyCode = property.code ?? "";
+        const internalPropertyName = property.name ?? "";
+        const companyId = dto.companyId ?? property.companyId;
+        const organisationId = dto.organisationId ?? property.organisationId;
+        this.logger.log(`[syncBudget] Checking if Entrata budget exists for property: ${internalPropertyName} (${internalPropertyCode}), fiscalYear: ${fiscalYear}`);
+        // 2. Check local database (property_budgets) first
+        let budgetId;
+        const existingPb = await prisma.propertyBudget.findFirst({
+            where: {
+                propertyId: internalPropertyId,
+                fiscalYear
+            }
+        });
+        if (existingPb?.sourceBudgetId && existingPb.sourceBudgetId.trim() !== "") {
+            budgetId = existingPb.sourceBudgetId.trim();
+            this.logger.log(`[syncBudget] Found existing Entrata budgetId '${budgetId}' in local property_budgets for fiscalYear ${fiscalYear}.`);
+        }
+        // 3. If not found locally, query Entrata getBudgets to check if budget already exists in Entrata
+        if (!budgetId) {
+            try {
+                const integrationSource = await prisma.integrationSource.findFirst({
+                    where: {
+                        ...(dto.integrationSourceId ? { id: dto.integrationSourceId } : {}),
+                        companyId,
+                        organisationId,
+                        sourceType: "entrata",
+                        isActive: true
+                    },
+                    include: { config: true }
+                });
+                const configConn = integrationSource?.config?.connectionJson ?? {};
+                const configCreds = integrationSource?.config?.credentialsJson ?? {};
+                const baseUrl = configConn.baseUrl ?? process.env.ENTRATA_BASE_URL ?? "https://apis.entrata.com";
+                const orgSlug = configConn.orgSlug ?? "galleryresidential";
+                const apiKey = configCreds.apiKey ?? process.env.ENTRATA_API_KEY ?? "";
+                const endpointUrl = `${baseUrl.replace(/\/+$/, "")}/ext/orgs/${orgSlug}/v1/financial`;
+                if (apiKey) {
+                    const targetPropertyId = internalPropertyCode;
+                    const defaultBudgetName = `${internalPropertyName} ${fiscalYear}${budgetScope === "CAPEX" ? " Capex" : ""}`;
+                    const targetBudgetName = dto.budgetName ?? defaultBudgetName;
+                    const foundId = await this.fetchAndStoreEntrataBudgetId({
+                        endpointUrl,
+                        apiKey,
+                        internalPropertyId,
+                        propertyCodeForRequestId: internalPropertyCode || "100141352",
+                        targetPropertyId,
+                        fiscalYear,
+                        budgetName: targetBudgetName,
+                        companyId,
+                        organisationId
+                    });
+                    if (foundId) {
+                        budgetId = foundId;
+                        this.logger.log(`[syncBudget] Discovered existing budget in Entrata via getBudgets: budgetId='${budgetId}'.`);
+                    }
+                }
+            }
+            catch (err) {
+                this.logger.warn(`[syncBudget] Could not verify budget existence via getBudgets: ${err?.message}`);
+            }
+        }
+        // 4. Switch between UPDATE and CREATE
+        const effectiveDto = {
+            ...dto,
+            propertyId,
+            fiscalYear,
+            dryRun,
+            budgetScope,
+            ...(budgetId ? { budgetId } : {})
+        };
+        if (budgetId) {
+            this.logger.log(`[syncBudget] Budget exists (budgetId: ${budgetId}). Auto-switching to updateBudgets (UPDATE)...`);
+            const res = await this.executeMode("UPDATE", effectiveDto);
+            return {
+                ...res,
+                operation: "UPDATE"
+            };
+        }
+        else {
+            this.logger.log(`[syncBudget] Budget does not exist for property ${internalPropertyName} (FY: ${fiscalYear}). Auto-switching to sendBudgets (CREATE)...`);
+            const res = await this.executeMode("CREATE", effectiveDto);
+            return {
+                ...res,
+                operation: "CREATE"
+            };
+        }
+    }
     async executeMode(mode, dto) {
         const isCreate = mode === "CREATE";
         const methodName = isCreate ? "sendBudgets" : "updateBudgets";
         const syncType = isCreate ? "BUDGET_EXPORT" : "BUDGET_UPDATE";
         const errorCode = isCreate ? "ENTRATA_SEND_BUDGETS_ERROR" : "ENTRATA_UPDATE_BUDGETS_ERROR";
-        const { propertyId, fiscalYear = 2027, dryRun = true, applyLatestChangeset = true } = dto;
-        this.logger.log(`Initiating Entrata ${methodName}. Input propertyId: ${propertyId}, fiscalYear: ${fiscalYear}, dryRun: ${dryRun}`);
+        const { propertyId, fiscalYear = 2027, dryRun = true, applyLatestChangeset = true, budgetScope = "OPERATING" } = dto;
+        this.logger.log(`Initiating Entrata ${methodName}. Input propertyId: ${propertyId}, fiscalYear: ${fiscalYear}, dryRun: ${dryRun}, budgetScope: ${budgetScope}`);
         // 1. Find the source property internally by UUID or property_code
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(propertyId);
         const property = isUuid
             ? await prisma.property.findUnique({ where: { id: propertyId } })
             : await prisma.property.findFirst({ where: { code: propertyId } });
         if (!property) {
-            throw new NotFoundException(`Property '${propertyId}' not found in internal database. Please provide a valid internal property UUID or property code.`);
+            throw new NotFoundException({
+                success: false,
+                statusCode: 404,
+                message: `Property '${propertyId}' not found in internal database. Please provide a valid internal property UUID or property code.`,
+                propertyId
+            });
         }
         const internalPropertyId = property.id;
         const internalPropertyCode = property.code ?? "";
@@ -60,43 +178,59 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
             ? await prisma.$queryRawUnsafe(`
           SELECT public.fn_generate_entrata_send_budgets_json(
             '${internalPropertyId}'::uuid,
-            ${fiscalYear},
-            true
+            ${fiscalYear}::integer,
+            true,
+            '${budgetScope}'::text
           ) AS payload;
         `)
             : await prisma.$queryRawUnsafe(`
           SELECT public.fn_generate_entrata_update_budgets_json(
             '${internalPropertyId}'::uuid,
-            ${fiscalYear},
-            ${dto.budgetId ? `'${dto.budgetId}'` : 'NULL'},
-            true
+            ${fiscalYear}::integer,
+            ${dto.budgetId ? `'${dto.budgetId}'::text` : 'NULL::text'},
+            true,
+            '${budgetScope}'::text
           ) AS payload;
         `);
         const payload = genRows[0]?.payload;
+        const budgetObj = payload?.method?.params?.budgets?.budget?.[0];
+        const targetPropertyId = internalPropertyCode;
+        const defaultBudgetName = (budgetObj?.budgetName && budgetObj.budgetName.includes(String(fiscalYear)))
+            ? budgetObj.budgetName
+            : `${internalPropertyName} ${fiscalYear}${budgetScope === "CAPEX" ? " Capex" : ""}`;
+        const targetBudgetName = dto.budgetName ?? defaultBudgetName;
         if (!payload || !payload.method?.params?.budgets?.budget?.length) {
-            throw new BadRequestException(`No working budget lines or snapshot found for property ${internalPropertyName} (${internalPropertyCode}) in fiscal year ${fiscalYear}.`);
+            throw new BadRequestException({
+                success: false,
+                statusCode: 400,
+                message: `No working budget lines or snapshot found for property ${internalPropertyName} (${internalPropertyCode}) in fiscal year ${fiscalYear}.`,
+                internalPropertyId,
+                targetPropertyId,
+                propertyCode: targetPropertyId,
+                propertyName: internalPropertyName,
+                budgetName: targetBudgetName,
+                fiscalYear
+            });
         }
-        // 4. MASK the outbound property details for Entrata testing as requested:
-        //    propertyId -> "100141352"
+        // 4. Configure outbound property details for Entrata using actual property code and name
         if (payload.method?.params) {
-            payload.method.params.propertyId = MASKED_ENTRATA_PROPERTY_ID;
-            if (payload.method.params.budgets?.budget?.[0]) {
+            payload.method.params.propertyId = targetPropertyId;
+            if (budgetObj) {
                 if (isCreate) {
-                    payload.method.params.budgets.budget[0].budgetName = dto.budgetName ?? MASKED_ENTRATA_PROPERTY_NAME;
-                    delete payload.method.params.budgets.budget[0].id;
-                    delete payload.method.params.budgets.budget[0].propertyName;
+                    budgetObj.budgetName = targetBudgetName;
+                    delete budgetObj.id;
+                    delete budgetObj.propertyName;
                 }
                 else if (dto.budgetId) {
-                    payload.method.params.budgets.budget[0].budgetId = Number(dto.budgetId);
+                    budgetObj.budgetId = Number(dto.budgetId);
                 }
             }
         }
         // Ensure requestId is formatted as: property_code + unique number (timestamp)
-        const propertyCodeForRequestId = internalPropertyCode || payload.method?.params?.propertyId || MASKED_ENTRATA_PROPERTY_ID;
+        const propertyCodeForRequestId = internalPropertyCode || payload.method?.params?.propertyId || "100141352";
         payload.requestId = `${propertyCodeForRequestId}_${Date.now()}`;
-        const budgetObj = payload.method.params.budgets.budget[0];
-        const budgetName = isCreate ? budgetObj?.budgetName : undefined;
-        const budgetId = !isCreate ? String(budgetObj?.budgetId ?? dto.budgetId ?? "9692") : undefined;
+        const budgetName = targetBudgetName;
+        const budgetId = !isCreate ? String(budgetObj?.budgetId ?? dto.budgetId ?? "") : undefined;
         const glAccountsCount = budgetObj?.glAccounts?.glAccount?.length ?? 0;
         // 5. Resolve active Entrata integration source & credentials
         const integrationSource = await prisma.integrationSource.findFirst({
@@ -127,19 +261,25 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
             return {
                 success: true,
                 dryRun: true,
-                message: `Dry run completed successfully for ${methodName}. Internal property data extracted and masked as requested.`,
+                message: `Dry run completed successfully for ${methodName}. Target property: ${internalPropertyName} (Entrata ID: ${targetPropertyId}).`,
                 property: {
                     id: internalPropertyId,
                     propertyCode: internalPropertyCode,
                     propertyName: internalPropertyName
                 },
-                maskedEntrataProperty: {
-                    propertyId: MASKED_ENTRATA_PROPERTY_ID,
-                    propertyName: MASKED_ENTRATA_PROPERTY_NAME
+                targetEntrataProperty: {
+                    propertyId: targetPropertyId,
+                    propertyName: targetBudgetName
                 },
+                maskedEntrataProperty: {
+                    propertyId: targetPropertyId,
+                    propertyName: targetBudgetName
+                },
+                propertyName: internalPropertyName,
+                budgetName: targetBudgetName,
                 fiscalYear,
+                budgetScope,
                 requestId: payload.requestId,
-                ...(budgetName ? { budgetName } : {}),
                 ...(budgetId ? { budgetId } : {}),
                 glAccountsCount,
                 endpointUrl,
@@ -148,7 +288,17 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
             };
         }
         if (!apiKey) {
-            throw new BadRequestException("Entrata API key is not configured in integration_source_configs or ENTRATA_API_KEY environment variable.");
+            throw new BadRequestException({
+                success: false,
+                statusCode: 400,
+                message: "Entrata API key is not configured in integration_source_configs or ENTRATA_API_KEY environment variable.",
+                internalPropertyId,
+                targetPropertyId,
+                propertyCode: targetPropertyId,
+                propertyName: internalPropertyName,
+                budgetName: targetBudgetName,
+                fiscalYear
+            });
         }
         // 7. Record Integration Sync Run
         const requestId = String(payload.requestId ?? `${methodName}-${Date.now()}`);
@@ -168,7 +318,7 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
         });
         // 8. Dispatch HTTP POST to Entrata endpoint & record StagingApiBatch
         try {
-            this.logger.log(`Sending HTTP POST to Entrata: ${endpointUrl} (Masked PropertyId: ${MASKED_ENTRATA_PROPERTY_ID})`);
+            this.logger.log(`Sending HTTP POST to Entrata: ${endpointUrl} (PropertyId: ${targetPropertyId}, BudgetName: ${targetBudgetName})`);
             const response = await axios.post(endpointUrl, payload, {
                 headers: {
                     "Content-Type": "application/json",
@@ -211,14 +361,13 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
             let retrievedBudgetId = budgetId;
             if (isSuccess && isCreate) {
                 try {
-                    const targetBudgetName = budgetName ?? MASKED_ENTRATA_PROPERTY_NAME;
                     this.logger.log(`Querying Entrata getBudgets to retrieve newly created budgetId for ${targetBudgetName}...`);
                     const foundId = await this.fetchAndStoreEntrataBudgetId({
                         endpointUrl,
                         apiKey,
                         internalPropertyId,
                         propertyCodeForRequestId,
-                        maskedPropertyId: MASKED_ENTRATA_PROPERTY_ID,
+                        targetPropertyId,
                         fiscalYear,
                         budgetName: targetBudgetName,
                         companyId,
@@ -233,24 +382,48 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
                     this.logger.warn(`Failed to auto-retrieve budgetId via getBudgets: ${fetchErr?.message}`);
                 }
             }
+            // If budget update was successful, update lastSyncedAt on property_budgets
+            if (isSuccess && !isCreate) {
+                try {
+                    await prisma.propertyBudget.updateMany({
+                        where: {
+                            propertyId: internalPropertyId,
+                            fiscalYear
+                        },
+                        data: {
+                            lastSyncedAt: new Date(),
+                            updatedSource: "ENTRATA"
+                        }
+                    });
+                }
+                catch (syncErr) {
+                    this.logger.warn(`Could not update lastSyncedAt on property_budgets: ${syncErr?.message}`);
+                }
+            }
             return {
                 success: isSuccess,
                 dryRun: false,
                 message: isSuccess
-                    ? `Budget ${isCreate ? 'exported' : 'updated'} and sent to Entrata successfully.`
+                    ? `Budget ${isCreate ? 'exported' : 'updated'} and sent to Entrata successfully for property ${internalPropertyName} (Entrata ID: ${targetPropertyId}).`
                     : `Entrata returned status code ${responseCode}`,
                 property: {
                     id: internalPropertyId,
                     propertyCode: internalPropertyCode,
                     propertyName: internalPropertyName
                 },
-                maskedEntrataProperty: {
-                    propertyId: MASKED_ENTRATA_PROPERTY_ID,
-                    propertyName: MASKED_ENTRATA_PROPERTY_NAME
+                targetEntrataProperty: {
+                    propertyId: targetPropertyId,
+                    propertyName: targetBudgetName
                 },
+                maskedEntrataProperty: {
+                    propertyId: targetPropertyId,
+                    propertyName: targetBudgetName
+                },
+                propertyName: internalPropertyName,
+                budgetName: targetBudgetName,
                 fiscalYear,
+                budgetScope,
                 requestId,
-                ...(budgetName ? { budgetName } : {}),
                 ...(retrievedBudgetId ? { budgetId: retrievedBudgetId } : {}),
                 glAccountsCount,
                 endpointUrl,
@@ -316,7 +489,10 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
                     severity: "ERROR",
                     contextJson: {
                         internalPropertyId,
-                        maskedPropertyId: MASKED_ENTRATA_PROPERTY_ID,
+                        targetPropertyId,
+                        propertyCode: targetPropertyId,
+                        propertyName: internalPropertyName,
+                        budgetName: targetBudgetName,
                         fiscalYear,
                         endpointUrl,
                         statusCode,
@@ -326,9 +502,13 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
                 }
             });
             throw new InternalServerErrorException({
+                success: false,
                 message: `Failed to transmit budget to Entrata: ${errorMessage}`,
                 internalPropertyId,
-                maskedPropertyId: MASKED_ENTRATA_PROPERTY_ID,
+                targetPropertyId,
+                propertyCode: targetPropertyId,
+                propertyName: internalPropertyName,
+                budgetName: targetBudgetName,
                 fiscalYear,
                 statusCode,
                 syncRunId: syncRun.id,
@@ -345,7 +525,7 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
                 name: "getBudgets",
                 version: "r1",
                 params: {
-                    propertyIds: params.maskedPropertyId,
+                    propertyIds: params.targetPropertyId,
                     fiscalYears: String(params.fiscalYear)
                 }
             }

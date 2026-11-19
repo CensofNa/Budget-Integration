@@ -13,4 +13,6 @@ export class SyncReportDataRequestDto {
   periodStart?: string;
   periodEnd?: string;
   updateFiscalConfig?: boolean;
+  updateReforecast?: boolean;
+  reforecastPostMonth?: string;
 }

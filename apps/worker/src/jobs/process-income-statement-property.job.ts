@@ -163,7 +163,11 @@ export async function processIncomeStatementPropertyJob(
 
   // 4.5 If updateReforecast is true, sync projected actuals to REFORECAST with the cutoff month
   // and update property.reforecast_locked_till_month within a single transaction
-  if ((data.updateReforecast || data.reforecastCutoffMonth) && targetPropertyId) {
+  const shouldUpdateReforecast =
+    data.updateReforecast === true ||
+    (data.updateReforecast !== false && Boolean(data.reforecastCutoffMonth));
+
+  if (shouldUpdateReforecast && targetPropertyId) {
     const rawCutoff = data.reforecastCutoffMonth ?? "2026-06";
     const cutoffMonth = rawCutoff.length > 7 && rawCutoff.includes("-") ? rawCutoff.slice(0, 7) : rawCutoff;
     const lockedMonthNumber = parseMonthNumber(rawCutoff);

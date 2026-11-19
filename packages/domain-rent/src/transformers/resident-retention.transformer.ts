@@ -256,47 +256,6 @@ export async function transformResidentRetentionReport(
     create: data
   });
 
-  // Update lease_expirations and renewal_percent in occupancy_reforecast_details till reforecast_locked_till_month
-  const reportMonthNum = reportMonth.getUTCMonth() + 1;
-  if (
-    property.reforecastLockedTillMonth &&
-    reportMonthNum <= property.reforecastLockedTillMonth
-  ) {
-    const occupancyReforecast = await prisma.occupancyReforecast.findUnique({
-      where: {
-        propertyId_year: {
-          propertyId: property.id,
-          year: fiscalYear
-        }
-      },
-      select: { id: true }
-    });
-
-    if (occupancyReforecast) {
-      const updateData: {
-        leaseExpirations?: number;
-        renewalPercent?: number;
-      } = {};
-
-      if (data.expiringLeases !== null && data.expiringLeases !== undefined) {
-        updateData.leaseExpirations = Math.round(Number(data.expiringLeases));
-      }
-      if (data.renewalPercentage !== null && data.renewalPercentage !== undefined) {
-        updateData.renewalPercent = Number(data.renewalPercentage);
-      }
-
-      if (Object.keys(updateData).length > 0) {
-        await prisma.occupancyReforecastDetail.updateMany({
-          where: {
-            reforecastId: occupancyReforecast.id,
-            month: reportMonthNum
-          },
-          data: updateData
-        });
-      }
-    }
-  }
-
   await prisma.stagingReportData.update({
     where: { id: input.stagingReportDataId },
     data: {

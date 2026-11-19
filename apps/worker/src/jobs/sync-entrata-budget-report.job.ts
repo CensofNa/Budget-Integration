@@ -425,6 +425,36 @@ export async function syncEntrataBudgetReportJob(
           const errMsg = `[ERROR] [${idx + 1}/${properties.length}] Failed fetching Entrata budget report for property ${sourcePropertyId}: ${fetchErr?.message ?? fetchErr}`;
           console.error(errMsg);
           data.onProgress?.(errMsg);
+
+          const errStatusCode = fetchErr?.response?.status ?? 500;
+          const errResponseData = fetchErr?.response?.data ?? { error: fetchErr?.message ?? String(fetchErr) };
+
+          await prisma.integrationReportApiLog.create({
+            data: {
+              id: reportLogId,
+              companyId: data.companyId,
+              organisationId: data.organisationId,
+              integrationSourceId: data.integrationSourceId,
+              syncRunId,
+              reportCode: "budget",
+              reportName: "budget",
+              reportVersion: "1.5",
+              methodVersion: "r2",
+              sourcePropertyId,
+              propertyId: property.id,
+              propertyCode: property.code,
+              glTreeId,
+              glBookIds: (data.glBookIds ?? []) as unknown as Prisma.InputJsonValue,
+              accountingMethod: "Accrual",
+              requestPayload: requestPayload as Prisma.InputJsonValue,
+              responsePayload: errResponseData as Prisma.InputJsonValue,
+              responseCode: errStatusCode,
+              status: "FAILED",
+              errorMessage: fetchErr?.message ?? String(fetchErr),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          }).catch((logErr) => console.error("[SyncBudgetReportJob] Failed to log error in integrationReportApiLog:", logErr));
         }
       }
     } else {

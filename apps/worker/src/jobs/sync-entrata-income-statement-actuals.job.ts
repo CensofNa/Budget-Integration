@@ -982,6 +982,14 @@ export async function syncEntrataIncomeStatementActualsJob(
 
                 if (data.autoProcess) {
                     try {
+                        const shouldUpdateReforecast =
+                            data.updateReforecast === true ||
+                            (data.updateReforecast !== false && Boolean(data.reforecastCutoffMonth));
+
+                        const resolvedCutoff =
+                            data.reforecastCutoffMonth ??
+                            (data.latestPostMonth ? String(data.latestPostMonth).slice(0, 7) : undefined);
+
                         const processJob = await processIncomeStatementPropertyQueue.add(
                             "process-income-statement-property",
                             {
@@ -997,8 +1005,10 @@ export async function syncEntrataIncomeStatementActualsJob(
                                 ...(propertyCode ? { propertyCode } : {}),
 
                                 fiscalYear: data.fiscalYear,
-                                updateReforecast: data.updateReforecast ?? Boolean(data.reforecastCutoffMonth),
-                                ...(data.reforecastCutoffMonth ? { reforecastCutoffMonth: data.reforecastCutoffMonth } : (data.latestPostMonth ? { reforecastCutoffMonth: String(data.latestPostMonth).slice(0, 7) } : {})),
+                                updateReforecast: shouldUpdateReforecast,
+                                ...(shouldUpdateReforecast && resolvedCutoff
+                                    ? { reforecastCutoffMonth: resolvedCutoff }
+                                    : {}),
                             },
                             {
                                 attempts: 2,

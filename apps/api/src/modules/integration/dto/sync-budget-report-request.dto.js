@@ -16,12 +16,17 @@ export class SyncBudgetReportRequestDto {
     fiscalYear;
     targetBudgetYear;
     propertyIds;
+    propertyCodes;
+    balanceSheetAccounts;
     ownerFilter;
     glTreeId;
     glBookIds;
     budgetStatus;
     includeZeroBalance;
     autoProcess;
+    updateFiscalConfig;
+    stream;
+    syncMode;
 }
 __decorate([
     ApiProperty({ type: String, description: "The UUID of the company" }),
@@ -52,9 +57,17 @@ __decorate([
     __metadata("design:type", Number)
 ], SyncBudgetReportRequestDto.prototype, "targetBudgetYear", void 0);
 __decorate([
-    ApiPropertyOptional({ type: [String], description: "List of property codes (sourcePropertyIds) to sync" }),
+    ApiPropertyOptional({ type: [String], description: "List of property IDs to sync" }),
     __metadata("design:type", Array)
 ], SyncBudgetReportRequestDto.prototype, "propertyIds", void 0);
+__decorate([
+    ApiPropertyOptional({ type: [String], description: "List of property codes (sourcePropertyIds) to sync" }),
+    __metadata("design:type", Array)
+], SyncBudgetReportRequestDto.prototype, "propertyCodes", void 0);
+__decorate([
+    ApiPropertyOptional({ type: Boolean, default: false, description: "Whether to include balance sheet accounts (balance_sheet_accounts: '1' or '0')" }),
+    __metadata("design:type", Boolean)
+], SyncBudgetReportRequestDto.prototype, "balanceSheetAccounts", void 0);
 __decorate([
     ApiPropertyOptional({ type: String, description: "Filter properties by owner (e.g. 'Livano' or 'Non-Livano')", enum: ["all", "livano", "non-livano"], default: "all" }),
     __metadata("design:type", String)
@@ -79,4 +92,29 @@ __decorate([
     ApiPropertyOptional({ type: Boolean, default: false, description: "Auto-trigger stage, transform, and project pipeline" }),
     __metadata("design:type", Boolean)
 ], SyncBudgetReportRequestDto.prototype, "autoProcess", void 0);
+__decorate([
+    ApiPropertyOptional({
+        type: Boolean,
+        default: false,
+        description: "Whether to update property fiscal configuration (budgetYear, fiscalYearStartDate, fiscalYearEndDate) from report payload",
+    }),
+    __metadata("design:type", Boolean)
+], SyncBudgetReportRequestDto.prototype, "updateFiscalConfig", void 0);
+__decorate([
+    ApiPropertyOptional({
+        type: Boolean,
+        default: false,
+        description: "Stream logs in real-time using chunked transfer encoding",
+    }),
+    __metadata("design:type", Boolean)
+], SyncBudgetReportRequestDto.prototype, "stream", void 0);
+__decorate([
+    ApiPropertyOptional({
+        type: String,
+        enum: ["SYNC", "QUEUE", "STREAM"],
+        default: "SYNC",
+        description: "Execution mode: SYNC (blocking), QUEUE (background worker), or STREAM (live text stream)",
+    }),
+    __metadata("design:type", String)
+], SyncBudgetReportRequestDto.prototype, "syncMode", void 0);
 //# sourceMappingURL=sync-budget-report-request.dto.js.map

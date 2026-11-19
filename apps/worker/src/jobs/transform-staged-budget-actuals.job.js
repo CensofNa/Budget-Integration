@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
 import { IntegrationError } from "@budget-integration/integration-core";
-import { transformEntrataBudgetActual } from "@budget-integration/integration-core";
+import { transformEntrataBudgetActual } from "@budget-integration/domain-budget";
 function getFiscalYearFromPostMonth(postMonth) {
     // BudgetActual fiscal year must follow the actual posting month, not the Entrata budget fiscal year.
     // Example: post_month 12/2025 must be stored as fiscal_year 2025 even when syncing Budget FY 2026.

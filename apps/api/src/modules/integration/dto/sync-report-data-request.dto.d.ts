@@ -12,5 +12,8 @@ export declare class SyncReportDataRequestDto {
     includePriorYear?: boolean;
     periodStart?: string;
     periodEnd?: string;
+    updateFiscalConfig?: boolean;
+    updateReforecast?: boolean;
+    reforecastPostMonth?: string;
 }
 //# sourceMappingURL=sync-report-data-request.dto.d.ts.map

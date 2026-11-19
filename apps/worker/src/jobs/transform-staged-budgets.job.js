@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
-import { transformEntrataBudget } from "@budget-integration/integration-core";
+import { transformEntrataBudget } from "@budget-integration/domain-budget";
 import { projectBudgetSnapshotsJob } from "./project-budget-snapshots.job.js";
 export async function transformStagedBudgetsJob(input = {}) {
     if (!input.companyId || !input.organisationId || !input.integrationSourceId) {

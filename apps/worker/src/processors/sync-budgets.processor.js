@@ -40,7 +40,8 @@ export const syncBudgetsWorker = new Worker(QueueNames.SyncBudget, async (job) =
                 ? { propertyIds: job.data.propertyIds }
                 : job.data.propertyId
                     ? { propertyId: job.data.propertyId }
-                    : {})
+                    : {}),
+            updateFiscalConfig: job.data.updateFiscalConfig ?? false
         });
         console.log("Budget sync result:", result);
         if (result && (result.recordsPendingTransform > 0 || result.recordsStaged > 0)) {

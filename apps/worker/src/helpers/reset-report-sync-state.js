@@ -1,43 +1,31 @@
 import { prisma } from "@budget-integration/database";
-import { syncReportDataQueue, transformReportDataStagingQueue, projectOccupancyFromReportsQueue, } from "@budget-integration/integration-core";
+import { QueueNames, startPgBoss, } from "@budget-integration/integration-core";
 /**
- * Clears a BullMQ queue safely before starting a fresh manual sync.
+ * Clears a pg-boss queue safely before starting a fresh manual sync.
  *
  * This should be called before queuing the new sync job.
  * Do not call this from inside the processor that is currently handling the same queue.
  */
-async function resetBullQueue(queue, queueName) {
-    console.log(`Resetting BullMQ queue: ${queueName}`);
-    await queue.pause();
-    await queue.drain(true);
-    const states = [
-        "wait",
-        "delayed",
-        "failed",
-        "completed",
-        "paused",
-        "prioritized",
-    ];
-    for (const state of states) {
-        try {
-            const jobs = await queue.clean(0, 10000, state);
-            console.log(`Cleaned ${jobs.length} jobs from ${queueName}:${state}`);
-        }
-        catch (error) {
-            console.warn(`Could not clean ${queueName}:${state}`, error);
-        }
+async function resetPgBossQueue(queueName) {
+    console.log(`Resetting pg-boss queue: ${queueName}`);
+    const boss = await startPgBoss();
+    try {
+        await boss.deleteQueue(queueName);
     }
-    await queue.resume();
-    console.log(`BullMQ queue reset completed: ${queueName}`);
+    catch (error) {
+        console.warn(`Could not delete queue ${queueName}`, error);
+    }
+    await boss.createQueue(queueName);
+    console.log(`pg-boss queue reset completed: ${queueName}`);
 }
 /**
  * Resets report sync state before starting a new manual report sync.
  *
  * Clears:
- * 1. BullMQ Redis report queues.
- * 2. PostgreSQL staging_report_data rows.
- * 3. Optionally canonical report tables.
- */
+   * 1. pg-boss report queues.
+   * 2. PostgreSQL staging_report_data rows.
+   * 3. Optionally canonical report tables.
+   */
 export async function resetReportSyncState(input) {
     const reportCodes = input.reportCodes && input.reportCodes.length > 0
         ? input.reportCodes
@@ -49,14 +37,14 @@ export async function resetReportSyncState(input) {
         clearCanonicalReportData: input.clearCanonicalReportData ?? false,
     });
     /**
-     * 1. Clear Redis/BullMQ queues.
+     * 1. Clear pg-boss queues.
      *
      * This prevents old pending sync/transform/projection jobs from running
      * together with the new manual sync.
      */
-    await resetBullQueue(syncReportDataQueue, "sync-report-data-queue");
-    await resetBullQueue(transformReportDataStagingQueue, "transform-report-data-staging-queue");
-    await resetBullQueue(projectOccupancyFromReportsQueue, "project-occupancy-from-reports-queue");
+    await resetPgBossQueue(QueueNames.SyncReportData);
+    await resetPgBossQueue(QueueNames.TransformReportDataStaging);
+    await resetPgBossQueue(QueueNames.ProjectOccupancyFromReports);
     /**
      * 2. Clear PostgreSQL staging rows.
      *

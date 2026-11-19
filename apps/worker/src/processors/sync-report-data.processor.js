@@ -1,12 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
-import { PgBossWorker as Worker, QueueNames, acquireSyncLock, 
-// logIntegrationError,
-projectOccupancyFromReportsQueue, transformReportDataStagingQueue } from "@budget-integration/integration-core";
+import { PgBossWorker as Worker, QueueNames, acquireSyncLock, syncReportDataQueue, transformReportDataStagingQueue, createLogger } from "@budget-integration/integration-core";
 import { syncEntrataReportDataJob } from "../jobs/sync-entrata-report-data.job.js";
-function isOccupancyReport(reportCode) {
-    return reportCode === "box_score" || reportCode === "resident_retention";
-}
+const logger = createLogger("rent-details-service", prisma);
 function resolveBudgetYear(input) {
     if (typeof input.fiscalYear === "number" && Number.isFinite(input.fiscalYear)) {
         return input.fiscalYear;
@@ -20,12 +16,30 @@ function resolveBudgetYear(input) {
     return null;
 }
 export const syncReportDataWorker = new Worker(QueueNames.SyncReportData, async (job) => {
-    console.log("SyncReportData worker received job:", job.name, job.data);
-    if (job.name !== "sync-entrata-report-data")
+    await logger.info(`SyncReportData worker received job [reportCode=${job.data.reportCode}, jobId=${job.id}]`, {
+        action: "WORKER_REPORT_DATA_RECEIVED",
+        entityName: "ReportData",
+        jobId: String(job.id),
+        queueName: QueueNames.SyncReportData,
+        companyId: job.data.companyId,
+        organisationId: job.data.organisationId,
+        integrationSourceId: job.data.integrationSourceId,
+        contextJson: {
+            reportCode: job.data.reportCode,
+            propertyCount: job.data.propertyIds?.length ?? 0,
+            ...(job.data.fiscalYear !== undefined ? { fiscalYear: job.data.fiscalYear } : {})
+        }
+    });
+    if (job.name !== "sync-entrata-report-data") {
+        await logger.warn(`Unknown SyncReportData job name ignored [jobName=${job.name}]`, {
+            action: "WORKER_REPORT_DATA_IGNORED",
+            entityName: "ReportData",
+            jobId: String(job.id)
+        });
         return;
+    }
     let lock = null;
     try {
-        console.log("Acquiring ReportData sync lock...");
         lock = await acquireSyncLock({
             companyId: job.data.companyId,
             organisationId: job.data.organisationId,
@@ -33,14 +47,28 @@ export const syncReportDataWorker = new Worker(QueueNames.SyncReportData, async 
             entityName: `ReportData:${job.data.reportCode}`,
             ttlMs: 60 * 60 * 1000 // 1 hour
         });
-        console.log("ReportData sync lock acquired.");
         const result = await syncEntrataReportDataJob(job.data);
-        if (result.recordsPendingTransform > 0) {
-            console.log(`[STEP 2/3: TRANSFORM ENQUEUED] Queuing transform job for reportCode: ${result.reportCode}`, {
-                syncRunId: result.syncRunId,
+        const resolvedFiscalYear = result.fiscalYear ?? resolveBudgetYear(job.data) ?? undefined;
+        const resolvedPropertyCodes = result.propertyCodes && result.propertyCodes.length > 0
+            ? result.propertyCodes
+            : job.data.propertyIds;
+        await logger.info(`ReportData sync completed [reportCode=${result.reportCode}, received=${result.recordsReceived}, staged=${result.recordsStaged}, pendingTransform=${result.recordsPendingTransform}]`, {
+            action: "WORKER_REPORT_DATA_SYNCED",
+            entityName: "ReportData",
+            jobId: String(job.id),
+            syncRunId: result.syncRunId,
+            companyId: result.companyId,
+            organisationId: result.organisationId,
+            integrationSourceId: result.integrationSourceId,
+            contextJson: {
+                reportCode: result.reportCode,
                 reportRunId: result.reportRunId,
-                recordsPendingTransform: result.recordsPendingTransform,
-            });
+                recordsReceived: result.recordsReceived,
+                recordsStaged: result.recordsStaged,
+                recordsPendingTransform: result.recordsPendingTransform
+            }
+        });
+        if (result.recordsPendingTransform > 0) {
             await transformReportDataStagingQueue.add("transform-report-data-staging", {
                 companyId: result.companyId,
                 organisationId: result.organisationId,
@@ -49,7 +77,11 @@ export const syncReportDataWorker = new Worker(QueueNames.SyncReportData, async 
                 reportRunId: result.reportRunId,
                 reportCode: result.reportCode,
                 batchSize: result.transformBatchSize,
-                entityName: "ReportData"
+                entityName: "ReportData",
+                ...(resolvedPropertyCodes ? { propertyCodes: resolvedPropertyCodes } : {}),
+                ...(resolvedFiscalYear !== undefined ? { fiscalYear: resolvedFiscalYear } : {}),
+                ...(job.data.updateReforecast !== undefined ? { updateReforecast: job.data.updateReforecast } : {}),
+                ...(job.data.reforecastPostMonth ? { reforecastPostMonth: job.data.reforecastPostMonth } : {})
             }, {
                 attempts: 3,
                 backoff: {
@@ -59,98 +91,83 @@ export const syncReportDataWorker = new Worker(QueueNames.SyncReportData, async 
                 removeOnComplete: 100,
                 removeOnFail: 1000
             });
-            if (isOccupancyReport(job.data.reportCode)) {
-                const budgetYear = resolveBudgetYear(job.data);
-                if (!budgetYear) {
-                    console.warn("Skipping occupancy projection enqueue because budget year is missing.", {
-                        reportCode: job.data.reportCode,
-                        companyId: job.data.companyId,
-                        organisationId: job.data.organisationId,
-                        integrationSourceId: job.data.integrationSourceId,
-                        periodStart: job.data.periodStart
-                    });
+            await logger.info(`Queued transform job for reportCode=${result.reportCode} [syncRunId=${result.syncRunId}, pending=${result.recordsPendingTransform}]`, {
+                action: "TRANSFORM_REPORT_DATA_QUEUED",
+                entityName: "ReportData",
+                syncRunId: result.syncRunId,
+                companyId: result.companyId,
+                organisationId: result.organisationId,
+                integrationSourceId: result.integrationSourceId,
+                contextJson: {
+                    reportCode: result.reportCode,
+                    recordsPendingTransform: result.recordsPendingTransform
                 }
-                else {
-                    const numericPropertyIds = (job.data.propertyIds ?? [])
-                        .map((id) => Number.parseInt(id, 10))
-                        .filter((n) => Number.isInteger(n) && n > 0);
-                    const properties = await prisma.property.findMany({
-                        where: {
-                            companyId: job.data.companyId,
-                            organisationId: job.data.organisationId,
-                            isDisabled: false,
-                            ...(job.data.propertyIds?.length
-                                ? {
-                                    OR: [
-                                        { code: { in: job.data.propertyIds } },
-                                        ...(numericPropertyIds.length > 0 ? [{ externalId: { in: numericPropertyIds } }] : [])
-                                    ]
-                                }
-                                : {})
+            });
+        }
+        else if (job.data.reportCode === "box_score" && resolvedPropertyCodes?.length) {
+            // Fallback: If box_score staged 0 records, chain resident_retention directly so pipeline continues
+            await logger.info(`box_score staged 0 records; chaining resident_retention for ${resolvedPropertyCodes.length} property(s)`, {
+                action: "FALLBACK_RESIDENT_RETENTION_QUEUED",
+                entityName: "ReportData",
+                companyId: job.data.companyId,
+                organisationId: job.data.organisationId,
+                integrationSourceId: job.data.integrationSourceId,
+                contextJson: { propertyCount: resolvedPropertyCodes.length }
+            });
+            for (const propertyCode of resolvedPropertyCodes) {
+                await syncReportDataQueue.add("sync-entrata-report-data", {
+                    companyId: job.data.companyId,
+                    organisationId: job.data.organisationId,
+                    integrationSourceId: job.data.integrationSourceId,
+                    entityName: "ReportData",
+                    reportCode: "resident_retention",
+                    propertyIds: [propertyCode],
+                    ...(resolvedFiscalYear !== undefined ? { fiscalYear: resolvedFiscalYear } : {}),
+                    ...(job.data.updateReforecast !== undefined ? { updateReforecast: job.data.updateReforecast } : {}),
+                    ...(job.data.reforecastPostMonth ? { reforecastPostMonth: job.data.reforecastPostMonth } : {}),
+                    filters: {
+                        period: {
+                            period_type: "currentfyr"
                         },
-                        select: {
-                            id: true,
-                            code: true
-                        }
-                    });
-                    if (properties.length === 0) {
-                        console.warn("Skipping occupancy projection enqueue because no matching properties were found.", {
-                            reportCode: job.data.reportCode,
-                            propertyCodes: job.data.propertyIds,
-                            companyId: job.data.companyId,
-                            organisationId: job.data.organisationId
-                        });
+                        summarize_by: "month",
+                        consolidate_by: "no_consolidation",
+                        lease_status: "all",
+                        early_move_out_grace_period: "31",
+                        drill_in_column: "",
+                        unit_type_id: "",
+                        property_floorplan_id: "",
+                        month_id: "",
+                        year_id: "",
+                        previous_summarize_by: "",
+                        show_drill_ins: "1"
                     }
-                    else {
-                        for (const property of properties) {
-                            await projectOccupancyFromReportsQueue.add("project-occupancy-from-reports", {
-                                companyId: job.data.companyId,
-                                organisationId: job.data.organisationId,
-                                integrationSourceId: job.data.integrationSourceId,
-                                entityName: "Occupancy",
-                                propertyId: property.id,
-                                budgetYear
-                            }, {
-                                delay: 5 * 60 * 1000,
-                                attempts: 3,
-                                backoff: {
-                                    type: "exponential",
-                                    delay: 10000
-                                },
-                                removeOnComplete: 100,
-                                removeOnFail: 1000
-                            });
-                        }
-                        console.log(`[STEP 3/3: PROJECTION ENQUEUED] Queued ${properties.length} occupancy projection job(s) for reportCode: ${job.data.reportCode}`, {
-                            reportCode: job.data.reportCode,
-                            budgetYear,
-                            propertyCount: properties.length,
-                            syncRunId: result.syncRunId
-                        });
-                    }
-                }
+                }, {
+                    attempts: 3,
+                    backoff: {
+                        type: "exponential",
+                        delay: 5000
+                    },
+                    removeOnComplete: 100,
+                    removeOnFail: 1000
+                });
             }
         }
         return result;
     }
     catch (error) {
-        // await logIntegrationError(
-        //   prisma,
-        //   {
-        //     companyId: job.data.companyId,
-        //     organisationId: job.data.organisationId,
-        //     integrationSourceId: job.data.integrationSourceId,
-        //     entityName: "ReportData",
-        //     queueName: QueueNames.SyncReportData,
-        //     jobName: job.name,
-        //     bullJobId: String(job.id),
-        //     contextJson: {
-        //       reportCode: job.data.reportCode,
-        //       propertyIds: job.data.propertyIds
-        //     }
-        //   },
-        //   error
-        // );
+        await logger.error(`SyncReportData worker failed [reportCode=${job.data.reportCode}]`, error, {
+            action: "WORKER_REPORT_DATA_FAILED",
+            entityName: "ReportData",
+            jobId: String(job.id),
+            queueName: QueueNames.SyncReportData,
+            companyId: job.data.companyId,
+            organisationId: job.data.organisationId,
+            integrationSourceId: job.data.integrationSourceId,
+            contextJson: {
+                reportCode: job.data.reportCode,
+                propertyCount: job.data.propertyIds?.length ?? 0
+            }
+        });
         throw error;
     }
     finally {

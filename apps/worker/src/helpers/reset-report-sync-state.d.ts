@@ -19,9 +19,9 @@ export interface ResetReportSyncStateInput {
  * Resets report sync state before starting a new manual report sync.
  *
  * Clears:
- * 1. BullMQ Redis report queues.
- * 2. PostgreSQL staging_report_data rows.
- * 3. Optionally canonical report tables.
- */
+   * 1. pg-boss report queues.
+   * 2. PostgreSQL staging_report_data rows.
+   * 3. Optionally canonical report tables.
+   */
 export declare function resetReportSyncState(input: ResetReportSyncStateInput): Promise<void>;
 //# sourceMappingURL=reset-report-sync-state.d.ts.map

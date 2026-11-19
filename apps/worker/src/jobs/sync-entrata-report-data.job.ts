@@ -1502,6 +1502,14 @@ export async function syncEntrataReportDataJob(
             ? requestError.message
             : String(requestError);
 
+        let statusCode: number | null = null;
+        let errorResponse: any = null;
+        if (requestError && typeof requestError === "object" && "isAxiosError" in requestError) {
+          const axiosErr = requestError as any;
+          statusCode = axiosErr.response?.status ?? 502;
+          errorResponse = axiosErr.response?.data ?? (axiosErr.response?.statusText ? { statusText: axiosErr.response.statusText } : null);
+        }
+
         requestErrors.push({
           batchIndex: batchIndex + 1,
           batchCount: filterBatches.length,
@@ -1532,7 +1540,7 @@ export async function syncEntrataReportDataJob(
             entityName: "ReportData",
             sourceMethod: "getReportData",
             requestId,
-            responseCode: null,
+            responseCode: statusCode,
 
             rawRequest: {
               method: "getReportData",
@@ -1542,9 +1550,9 @@ export async function syncEntrataReportDataJob(
               filters: normalizedFilters as Prisma.InputJsonValue,
             } as Prisma.InputJsonValue,
 
-            rawResponse: {
+            rawResponse: (errorResponse ?? {
               error: errorMessage,
-            } as Prisma.InputJsonValue,
+            }) as Prisma.InputJsonValue,
 
             status: "FAILED",
             errorMessage,

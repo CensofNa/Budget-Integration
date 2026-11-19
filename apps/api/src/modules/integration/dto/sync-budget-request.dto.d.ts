@@ -7,5 +7,6 @@ export interface SyncBudgetRequestDto {
     budgetStatusTypeIds?: string;
     propertyId?: string;
     propertyIds?: string[] | string;
+    updateFiscalConfig?: boolean;
 }
 //# sourceMappingURL=sync-budget-request.dto.d.ts.map

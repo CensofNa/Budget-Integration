@@ -111,7 +111,9 @@ export const syncReportDataWorker = new Worker<SyncReportDataJobData>(
             batchSize: result.transformBatchSize,
             entityName: "ReportData",
             ...(resolvedPropertyCodes ? { propertyCodes: resolvedPropertyCodes } : {}),
-            ...(resolvedFiscalYear !== undefined ? { fiscalYear: resolvedFiscalYear } : {})
+            ...(resolvedFiscalYear !== undefined ? { fiscalYear: resolvedFiscalYear } : {}),
+            ...(job.data.updateReforecast !== undefined ? { updateReforecast: job.data.updateReforecast } : {}),
+            ...(job.data.reforecastPostMonth ? { reforecastPostMonth: job.data.reforecastPostMonth } : {})
           },
           {
             attempts: 3,
@@ -164,6 +166,8 @@ export const syncReportDataWorker = new Worker<SyncReportDataJobData>(
               reportCode: "resident_retention",
               propertyIds: [propertyCode],
               ...(resolvedFiscalYear !== undefined ? { fiscalYear: resolvedFiscalYear } : {}),
+              ...(job.data.updateReforecast !== undefined ? { updateReforecast: job.data.updateReforecast } : {}),
+              ...(job.data.reforecastPostMonth ? { reforecastPostMonth: job.data.reforecastPostMonth } : {}),
               filters: {
                 period: {
                   period_type: "currentfyr"

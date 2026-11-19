@@ -1,8 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
-import { transformEntrataPropertyUnit } from "@budget-integration/integration-core";
+import { transformEntrataPropertyUnitsBatch } from "@budget-integration/domain-property";
 export async function transformStagedPropertyUnitsJob(input = {}) {
-    const batchSize = input.batchSize ?? 50;
+    const batchSize = input.batchSize ?? 200;
     let totalTransformed = 0;
     let totalFailed = 0;
     const transformStartTime = new Date();
@@ -37,25 +37,23 @@ export async function transformStagedPropertyUnitsJob(input = {}) {
         if (stagedUnits.length === 0) {
             break;
         }
-        for (const stagedUnit of stagedUnits) {
-            try {
-                await transformEntrataPropertyUnit(prisma, {
-                    companyId: stagedUnit.companyId,
-                    organisationId: stagedUnit.organisationId,
-                    integrationSourceId: stagedUnit.integrationSourceId,
-                    stagingPropertyUnitId: stagedUnit.id,
-                    sourcePropertyId: stagedUnit.sourcePropertyId ?? "",
-                    sourceUnitId: stagedUnit.sourceUnitId ?? "",
-                    remotePrimaryKey: stagedUnit.remotePrimaryKey,
-                    // sourceHash: stagedUnit.sourceHash,
-                    rawUnitPayload: stagedUnit.rawUnitPayload
-                });
-                totalTransformed += 1;
-            }
-            catch (error) {
-                totalFailed += 1;
+        const batchResult = await transformEntrataPropertyUnitsBatch(prisma, stagedUnits.map((stagedUnit) => ({
+            companyId: stagedUnit.companyId,
+            organisationId: stagedUnit.organisationId,
+            integrationSourceId: stagedUnit.integrationSourceId,
+            stagingPropertyUnitId: stagedUnit.id,
+            sourcePropertyId: stagedUnit.sourcePropertyId ?? "",
+            sourceUnitId: stagedUnit.sourceUnitId ?? "",
+            remotePrimaryKey: stagedUnit.remotePrimaryKey,
+            sourceHash: stagedUnit.sourceHash,
+            rawUnitPayload: stagedUnit.rawUnitPayload
+        })));
+        totalTransformed += batchResult.transformed;
+        totalFailed += batchResult.failed;
+        if (batchResult.failures.length > 0) {
+            await Promise.all(batchResult.failures.map(async ({ stagingPropertyUnitId, error }) => {
                 await prisma.stagingPropertyUnit.update({
-                    where: { id: stagedUnit.id },
+                    where: { id: stagingPropertyUnitId },
                     data: {
                         validationStatus: "INVALID",
                         transformStatus: "FAILED",
@@ -64,8 +62,8 @@ export async function transformStagedPropertyUnitsJob(input = {}) {
                         }
                     }
                 });
-                console.error(`Failed to transform staged property unit ${stagedUnit.id}:`, error);
-            }
+                console.error(`Failed to transform staged property unit ${stagingPropertyUnitId}:`, error);
+            }));
         }
         const remainingPending = totalPendingBeforeStart - (totalTransformed + totalFailed);
         console.log(`PropertyUnit transform batch processed. ` +

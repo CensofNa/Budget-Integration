@@ -512,19 +512,26 @@ export async function syncEntrataBudgetActualsJob(
         )}-${Date.now()}`;
 
       
-        try {
-          const rawRequest = {
-            method: "getBudgetActuals",
-            propertyId: plan.sourcePropertyId,
-            glTreeId: plan.sourceGlTreeId,
-            budgetId: plan.sourceBudgetId,
-            postMonthFrom: postMonth,
-            postMonthTo: postMonth,
-            glBookTypeIds: "",
-            budgetStatusTypeId,
-            accountingMethod
-          };
+        const rawRequest = {
+          auth: { type: "apikey" },
+          requestId,
+          method: {
+            name: "getBudgetActuals",
+            version: "r1",
+            params: {
+              propertyId: plan.sourcePropertyId,
+              glTreeId: plan.sourceGlTreeId,
+              budgetId: plan.sourceBudgetId,
+              postMonthFrom: postMonth,
+              postMonthTo: postMonth,
+              glBookTypeIds: "",
+              budgetStatusTypeId,
+              accountingMethod
+            }
+          }
+        };
 
+        try {
           console.log(`[INFO] Calling getBudgetActuals. Request: ${requestCompletedCount}/${requestCount}`, rawRequest);
 
           const response = await connector.fetchBudgetActuals({
@@ -677,8 +684,45 @@ export async function syncEntrataBudgetActualsJob(
             postMonth,
             rows: rows.length
           });
-        } catch (error) {
+        } catch (error: unknown) {
           totalFailed++;
+
+          let statusCode = 500;
+          let errorResponse: any = null;
+          let errorMessage = "Unknown error occurred while contacting Entrata";
+
+          if (error && typeof error === "object" && "isAxiosError" in error) {
+            const axiosErr = error as any;
+            statusCode = axiosErr.response?.status ?? 502;
+            errorResponse = axiosErr.response?.data ?? (axiosErr.response?.statusText ? { statusText: axiosErr.response.statusText } : null);
+            errorMessage = axiosErr.message;
+          } else if (error instanceof Error) {
+            errorMessage = error.message;
+          }
+
+          try {
+            await prisma.stagingApiBatch.create({
+              data: {
+                companyId: source.companyId,
+                organisationId: source.organisationId,
+                integrationSourceId: source.id,
+                syncRunId: syncRun.id,
+                entityName: "BudgetActual",
+                sourceMethod: "getBudgetActuals",
+                requestId,
+                responseCode: statusCode,
+                rawRequest: rawRequest as Prisma.InputJsonValue,
+                rawResponse: (errorResponse ?? { error: errorMessage }) as Prisma.InputJsonValue,
+                status: "FAILED",
+                errorMessage
+              }
+            });
+          } catch (batchErr) {
+            console.error(
+              `[BudgetActual] Failed to record error batch in staging_api_batches for property ${plan.sourcePropertyId}, budget ${plan.sourceBudgetId}:`,
+              batchErr
+            );
+          }
 
           console.error(`[ERROR] BudgetActual request failed. Request: ${requestCompletedCount}/${requestCount} Failed: ${totalFailed}`, {
             propertyId: plan.sourcePropertyId,

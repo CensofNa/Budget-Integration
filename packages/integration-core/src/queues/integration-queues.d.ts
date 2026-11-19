@@ -1,4 +1,4 @@
-import type { SyncPropertyJobData, TransformPropertyStagingJobData, SyncPropertyUnitJobData, TransformPropertyUnitStagingJobData, SyncUnitTypeJobData, TransformUnitTypeStagingJobData, SyncBudgetJobData, TransformBudgetStagingJobData, SyncReportDataJobData, TransformReportDataStagingJobData, ProjectOccupancyFromReportsJobData, SyncGlTreeJobData, TransformGlTreeStagingJobData, SyncBudgetActualJobData, TransformBudgetActualStagingJobData, ProjectBudgetActualSnapshotsJobData, SyncIncomeStatementActualsJobData, StageIncomeStatementActualsJobData, TransformIncomeStatementActualsJobData, ProjectIncomeStatementActualsJobData, ProcessIncomeStatementPropertyJobData } from "./job-types.js";
+import type { SyncPropertyJobData, TransformPropertyStagingJobData, SyncPropertyUnitJobData, TransformPropertyUnitStagingJobData, SyncUnitTypeJobData, TransformUnitTypeStagingJobData, SyncBudgetJobData, TransformBudgetStagingJobData, SyncReportDataJobData, TransformReportDataStagingJobData, ProjectOccupancyFromReportsJobData, SyncGlTreeJobData, TransformGlTreeStagingJobData, SyncBudgetActualJobData, TransformBudgetActualStagingJobData, ProjectBudgetActualSnapshotsJobData, SyncIncomeStatementActualsJobData, StageIncomeStatementActualsJobData, TransformIncomeStatementActualsJobData, ProjectIncomeStatementActualsJobData, ProcessIncomeStatementPropertyJobData, SyncBalanceSheetActualsJobData, StageBalanceSheetActualsJobData, TransformBalanceSheetActualsJobData, ProjectBalanceSheetActualsJobData } from "./job-types.js";
 export interface AddJobOptions {
     attempts?: number;
     backoff?: {
@@ -49,5 +49,9 @@ export declare const stageIncomeStatementActualsQueue: PgBossQueue<StageIncomeSt
 export declare const transformIncomeStatementActualsQueue: PgBossQueue<TransformIncomeStatementActualsJobData>;
 export declare const projectIncomeStatementActualsQueue: PgBossQueue<ProjectIncomeStatementActualsJobData>;
 export declare const processIncomeStatementPropertyQueue: PgBossQueue<ProcessIncomeStatementPropertyJobData>;
+export declare const syncBalanceSheetActualsQueue: PgBossQueue<SyncBalanceSheetActualsJobData>;
+export declare const stageBalanceSheetActualsQueue: PgBossQueue<StageBalanceSheetActualsJobData>;
+export declare const transformBalanceSheetActualsQueue: PgBossQueue<TransformBalanceSheetActualsJobData>;
+export declare const projectBalanceSheetActualsQueue: PgBossQueue<ProjectBalanceSheetActualsJobData>;
 export declare function closeQueues(): Promise<void>;
 //# sourceMappingURL=integration-queues.d.ts.map

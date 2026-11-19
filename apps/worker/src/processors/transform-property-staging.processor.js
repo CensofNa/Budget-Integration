@@ -15,6 +15,7 @@ export const transformPropertyStagingWorker = new Worker(QueueNames.TransformPro
         integrationSourceId: job.data.integrationSourceId,
         syncRunId: job.data.syncRunId,
         batchSize: 50,
+        updateFiscalConfig: job.data.updateFiscalConfig,
         ...(job.data.stagingBatchId
             ? { stagingBatchId: job.data.stagingBatchId }
             : {})

@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@budget-integration/database";
-import { transformEntrataGlTree } from "@budget-integration/integration-core";
+import { transformEntrataGlTree } from "@budget-integration/domain-property";
 const recordTypes = [
     "TREE",
     "BRANCH",

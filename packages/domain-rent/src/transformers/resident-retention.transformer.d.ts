@@ -7,5 +7,14 @@ export declare function transformResidentRetentionReport(prisma: PrismaClient, i
     sourceRecordId: string;
     sourceHash?: string | null;
     rawRecordPayload: unknown;
+    rawRequest?: unknown;
+    cachedProperties?: Array<{
+        id: string;
+        code: string | null;
+        externalId: number | null;
+        name: string | null;
+        fiscalYearStartMonth: number | null;
+        reforecastLockedTillMonth?: number | null;
+    }>;
 }): Promise<void>;
 //# sourceMappingURL=resident-retention.transformer.d.ts.map
