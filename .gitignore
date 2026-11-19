@@ -1,3 +1,4 @@
+# Existing rules
 node_modules/
 dist/
 .env
@@ -5,3 +6,13 @@ dist/
 scratch/
 scratch*
 *.zip
+
+# Angular/TypeScript build artifacts
+*.map
+*.js.map
+*.d.ts.map
+*.tsbuildinfo
+
+# Optional: compiled output folders (if used)
+out-tsc/
+tmp/
