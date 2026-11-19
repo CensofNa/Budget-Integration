@@ -115,6 +115,7 @@ export interface SendBudgetResponse {
   requestId?: string;
   budgetId?: string;
   budgetName?: string;
+  propertyName?: string;
   glAccountsCount?: number;
   endpointUrl: string;
   syncRunId?: string;

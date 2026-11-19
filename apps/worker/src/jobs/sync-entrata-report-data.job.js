@@ -1094,6 +1094,13 @@ export async function syncEntrataReportDataJob(input) {
                 const errorMessage = requestError instanceof Error
                     ? requestError.message
                     : String(requestError);
+                let statusCode = null;
+                let errorResponse = null;
+                if (requestError && typeof requestError === "object" && "isAxiosError" in requestError) {
+                    const axiosErr = requestError;
+                    statusCode = axiosErr.response?.status ?? 502;
+                    errorResponse = axiosErr.response?.data ?? (axiosErr.response?.statusText ? { statusText: axiosErr.response.statusText } : null);
+                }
                 requestErrors.push({
                     batchIndex: batchIndex + 1,
                     batchCount: filterBatches.length,
@@ -1118,7 +1125,7 @@ export async function syncEntrataReportDataJob(input) {
                         entityName: "ReportData",
                         sourceMethod: "getReportData",
                         requestId,
-                        responseCode: null,
+                        responseCode: statusCode,
                         rawRequest: {
                             method: "getReportData",
                             methodVersion,
@@ -1126,9 +1133,9 @@ export async function syncEntrataReportDataJob(input) {
                             reportVersion: reportVersion ?? null,
                             filters: normalizedFilters,
                         },
-                        rawResponse: {
+                        rawResponse: (errorResponse ?? {
                             error: errorMessage,
-                        },
+                        }),
                         status: "FAILED",
                         errorMessage,
                     },

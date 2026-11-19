@@ -730,7 +730,11 @@ let BudgetSyncController = class BudgetSyncController {
     async sendOrUpdateBudgets(body, queryPropertyId, queryFiscalYear, queryDryRun) {
         const propertyId = body?.propertyId || queryPropertyId;
         if (!propertyId) {
-            throw new BadRequestException("propertyId is required in body or query parameters.");
+            throw new BadRequestException({
+                success: false,
+                statusCode: 400,
+                message: "propertyId is required in body or query parameters."
+            });
         }
         const companyId = body?.companyId;
         const organisationId = body?.organisationId;

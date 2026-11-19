@@ -173,13 +173,19 @@ export async function syncEntrataGlTreesJob(input = {}) {
             requestId,
             responseCode: 0,
             rawRequest: {
-                method: "getGlTrees",
-                version: "r2",
-                glTreeId,
-                glBranchId,
-                glGroupTypeId,
-                glTreeTypeId,
-                accountNumbers
+                auth: { type: "apikey" },
+                requestId,
+                method: {
+                    name: "getGlTrees",
+                    version: "r2",
+                    params: {
+                        glTreeId,
+                        glBranchId,
+                        glGroupTypeId,
+                        glTreeTypeId,
+                        accountNumbers
+                    }
+                }
             },
             rawResponse: Prisma.JsonNull,
             status: "STARTED"
@@ -400,28 +406,43 @@ export async function syncEntrataGlTreesJob(input = {}) {
         };
     }
     catch (error) {
-        await prisma.stagingApiBatch.update({
-            where: {
-                id: stagingBatch.id
-            },
-            data: {
-                status: "FAILED",
-                rawResponse: {
-                    error: error instanceof Error
-                        ? error.message
-                        : String(error)
+        let statusCode = 500;
+        let errorResponse = null;
+        let errorMessage = "Unknown error occurred while contacting Entrata";
+        if (error && typeof error === "object" && "isAxiosError" in error) {
+            const axiosErr = error;
+            statusCode = axiosErr.response?.status ?? 502;
+            errorResponse = axiosErr.response?.data ?? (axiosErr.response?.statusText ? { statusText: axiosErr.response.statusText } : null);
+            errorMessage = axiosErr.message;
+        }
+        else if (error instanceof Error) {
+            errorMessage = error.message;
+        }
+        try {
+            await prisma.stagingApiBatch.update({
+                where: {
+                    id: stagingBatch.id
+                },
+                data: {
+                    status: "FAILED",
+                    responseCode: statusCode,
+                    errorMessage,
+                    rawResponse: (errorResponse ?? { error: errorMessage })
                 }
-            }
-        });
+            });
+        }
+        catch (batchErr) {
+            console.error("[GlTree] Failed to update staging batch on error:", batchErr);
+        }
         await prisma.integrationSyncRun.update({
             where: {
                 id: syncRun.id
             },
             data: {
                 status: "FAILED",
-                errorMessage: error instanceof Error
-                    ? error.message
-                    : String(error),
+                responseCode: statusCode,
+                recordsFailed: 1,
+                errorMessage,
                 completedAt: new Date()
             }
         });

@@ -22,7 +22,11 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
     async syncBudget(dto) {
         const propertyId = dto.propertyId;
         if (!propertyId) {
-            throw new BadRequestException("propertyId is required.");
+            throw new BadRequestException({
+                success: false,
+                statusCode: 400,
+                message: "propertyId is required."
+            });
         }
         const fiscalYear = dto.fiscalYear ?? 2027;
         const dryRun = dto.dryRun !== undefined ? Boolean(dto.dryRun) : true;
@@ -33,7 +37,12 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
             ? await prisma.property.findUnique({ where: { id: propertyId } })
             : await prisma.property.findFirst({ where: { code: propertyId } });
         if (!property) {
-            throw new NotFoundException(`Property '${propertyId}' not found in internal database.`);
+            throw new NotFoundException({
+                success: false,
+                statusCode: 404,
+                message: `Property '${propertyId}' not found in internal database.`,
+                propertyId
+            });
         }
         const internalPropertyId = property.id;
         const internalPropertyCode = property.code ?? "";
@@ -136,7 +145,12 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
             ? await prisma.property.findUnique({ where: { id: propertyId } })
             : await prisma.property.findFirst({ where: { code: propertyId } });
         if (!property) {
-            throw new NotFoundException(`Property '${propertyId}' not found in internal database. Please provide a valid internal property UUID or property code.`);
+            throw new NotFoundException({
+                success: false,
+                statusCode: 404,
+                message: `Property '${propertyId}' not found in internal database. Please provide a valid internal property UUID or property code.`,
+                propertyId
+            });
         }
         const internalPropertyId = property.id;
         const internalPropertyCode = property.code ?? "";
@@ -179,16 +193,26 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
           ) AS payload;
         `);
         const payload = genRows[0]?.payload;
-        if (!payload || !payload.method?.params?.budgets?.budget?.length) {
-            throw new BadRequestException(`No working budget lines or snapshot found for property ${internalPropertyName} (${internalPropertyCode}) in fiscal year ${fiscalYear}.`);
-        }
-        // 4. Configure outbound property details for Entrata using actual property code and name
-        const budgetObj = payload.method?.params?.budgets?.budget?.[0];
+        const budgetObj = payload?.method?.params?.budgets?.budget?.[0];
         const targetPropertyId = internalPropertyCode;
         const defaultBudgetName = (budgetObj?.budgetName && budgetObj.budgetName.includes(String(fiscalYear)))
             ? budgetObj.budgetName
             : `${internalPropertyName} ${fiscalYear}${budgetScope === "CAPEX" ? " Capex" : ""}`;
         const targetBudgetName = dto.budgetName ?? defaultBudgetName;
+        if (!payload || !payload.method?.params?.budgets?.budget?.length) {
+            throw new BadRequestException({
+                success: false,
+                statusCode: 400,
+                message: `No working budget lines or snapshot found for property ${internalPropertyName} (${internalPropertyCode}) in fiscal year ${fiscalYear}.`,
+                internalPropertyId,
+                targetPropertyId,
+                propertyCode: targetPropertyId,
+                propertyName: internalPropertyName,
+                budgetName: targetBudgetName,
+                fiscalYear
+            });
+        }
+        // 4. Configure outbound property details for Entrata using actual property code and name
         if (payload.method?.params) {
             payload.method.params.propertyId = targetPropertyId;
             if (budgetObj) {
@@ -205,7 +229,7 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
         // Ensure requestId is formatted as: property_code + unique number (timestamp)
         const propertyCodeForRequestId = internalPropertyCode || payload.method?.params?.propertyId || "100141352";
         payload.requestId = `${propertyCodeForRequestId}_${Date.now()}`;
-        const budgetName = isCreate ? budgetObj?.budgetName : undefined;
+        const budgetName = targetBudgetName;
         const budgetId = !isCreate ? String(budgetObj?.budgetId ?? dto.budgetId ?? "") : undefined;
         const glAccountsCount = budgetObj?.glAccounts?.glAccount?.length ?? 0;
         // 5. Resolve active Entrata integration source & credentials
@@ -251,10 +275,11 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
                     propertyId: targetPropertyId,
                     propertyName: targetBudgetName
                 },
+                propertyName: internalPropertyName,
+                budgetName: targetBudgetName,
                 fiscalYear,
                 budgetScope,
                 requestId: payload.requestId,
-                ...(budgetName ? { budgetName } : {}),
                 ...(budgetId ? { budgetId } : {}),
                 glAccountsCount,
                 endpointUrl,
@@ -263,7 +288,17 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
             };
         }
         if (!apiKey) {
-            throw new BadRequestException("Entrata API key is not configured in integration_source_configs or ENTRATA_API_KEY environment variable.");
+            throw new BadRequestException({
+                success: false,
+                statusCode: 400,
+                message: "Entrata API key is not configured in integration_source_configs or ENTRATA_API_KEY environment variable.",
+                internalPropertyId,
+                targetPropertyId,
+                propertyCode: targetPropertyId,
+                propertyName: internalPropertyName,
+                budgetName: targetBudgetName,
+                fiscalYear
+            });
         }
         // 7. Record Integration Sync Run
         const requestId = String(payload.requestId ?? `${methodName}-${Date.now()}`);
@@ -384,10 +419,11 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
                     propertyId: targetPropertyId,
                     propertyName: targetBudgetName
                 },
+                propertyName: internalPropertyName,
+                budgetName: targetBudgetName,
                 fiscalYear,
                 budgetScope,
                 requestId,
-                ...(budgetName ? { budgetName } : {}),
                 ...(retrievedBudgetId ? { budgetId: retrievedBudgetId } : {}),
                 glAccountsCount,
                 endpointUrl,
@@ -454,6 +490,9 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
                     contextJson: {
                         internalPropertyId,
                         targetPropertyId,
+                        propertyCode: targetPropertyId,
+                        propertyName: internalPropertyName,
+                        budgetName: targetBudgetName,
                         fiscalYear,
                         endpointUrl,
                         statusCode,
@@ -463,10 +502,13 @@ let SendEntrataBudgetsService = SendEntrataBudgetsService_1 = class SendEntrataB
                 }
             });
             throw new InternalServerErrorException({
+                success: false,
                 message: `Failed to transmit budget to Entrata: ${errorMessage}`,
                 internalPropertyId,
                 targetPropertyId,
                 propertyCode: targetPropertyId,
+                propertyName: internalPropertyName,
+                budgetName: targetBudgetName,
                 fiscalYear,
                 statusCode,
                 syncRunId: syncRun.id,

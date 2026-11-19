@@ -193,6 +193,12 @@ BUDGET_SERVICE_PORT=3002
 RENT_DETAILS_SERVICE_PORT=3003
 PORT=3000
 
+# Consumer URLs (for API gateway, frontend, or external microservice calls)
+# Replace localhost with your VM private IP/hostname when configuring on remote servers
+ENTRATA_SYNC_PROPERTY_URL="http://localhost:3001/integration-sync"
+ENTRATA_SYNC_BUDGET_URL="http://localhost:3002/integration-sync"
+ENTRATA_SYNC_RENT_URL="http://localhost:3003/integration-sync"
+
 # Worker Settings
 # Enables embedded pg-boss workers inside domain services (default: true)
 ENABLE_EMBEDDED_WORKER=true
@@ -203,7 +209,111 @@ SYNC_INCOME_STATEMENT_ACTUALS_CONCURRENCY=1
 
 ---
 
-## 8. Local Development Guide
+## 8. Domain Microservices API Reference & Method Paths
+
+All 3 domain microservices use a common base route prefix: **`/integration-sync`**.
+
+### Base URLs by Service
+
+| Service | Port | Common Base URL (.env) | Swagger UI |
+| :--- | :--- | :--- | :--- |
+| **`property-service`** | `3001` | `http://<host>:3001/integration-sync` | `http://<host>:3001/api` |
+| **`budget-service`** | `3002` | `http://<host>:3002/integration-sync` | `http://<host>:3002/api` |
+| **`rent-details-service`** | `3003` | `http://<host>:3003/integration-sync` | `http://<host>:3003/api` |
+
+---
+
+### 1. `property-service` (Port 3001)
+
+Base URL: `http://<host>:3001/integration-sync`
+
+| Method | Path | Full URL | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/health` | `http://<host>:3001/integration-sync/health` | Health check ping |
+| `GET` | `/logs` | `http://<host>:3001/integration-sync/logs` | Query paginated integration logs |
+| `POST` | `/entrata/properties` | `http://<host>:3001/integration-sync/entrata/properties` | Enqueue Entrata Properties sync (`getProperties`) |
+| `POST` | `/entrata/property-units` | `http://<host>:3001/integration-sync/entrata/property-units` | Enqueue Property Units sync (`getPropertyUnits`) |
+| `POST` | `/entrata/unit-types` | `http://<host>:3001/integration-sync/entrata/unit-types` | Enqueue Unit Types sync (`getUnitTypes`) |
+| `POST` | `/entrata/gl-trees` | `http://<host>:3001/integration-sync/entrata/gl-trees` | Enqueue Chart of Accounts / GL Trees sync (`getGlTrees`) |
+
+---
+
+### 2. `budget-service` (Port 3002)
+
+Base URL: `http://<host>:3002/integration-sync`
+
+#### System & Status
+| Method | Path | Full URL | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/health` | `http://<host>:3002/integration-sync/health` | Health check ping |
+| `GET` | `/logs` | `http://<host>:3002/integration-sync/logs` | Query paginated integration logs |
+| `GET` | `/sync-runs/:syncRunId/status` | `http://<host>:3002/integration-sync/sync-runs/:syncRunId/status` | Poll sync run progress and record counts |
+
+#### Budgets & Actuals
+| Method | Path | Full URL | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/entrata/budgets` | `http://<host>:3002/integration-sync/entrata/budgets` | Enqueue Entrata Budgets sync (`getBudgets`) |
+| `POST` | `/entrata/budgets/transform` | `http://<host>:3002/integration-sync/entrata/budgets/transform` | Transform staged budgets into canonical tables |
+| `POST` | `/entrata/budget-actuals` | `http://<host>:3002/integration-sync/entrata/budget-actuals` | Enqueue Budget Actuals sync (`getBudgetActuals`) |
+| `POST` | `/entrata/budget/sync-stream` | `http://<host>:3002/integration-sync/entrata/budget/sync-stream` | Stream live sync progress for Entrata budgets (SSE) |
+
+#### Income Statement Actuals
+| Method | Path | Full URL | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/entrata/income-statement-actuals/sync` | `http://<host>:3002/integration-sync/entrata/income-statement-actuals/sync` | Enqueue Income Statement sync |
+| `POST` | `/entrata/income-statement-actuals/sync-stream` | `http://<host>:3002/integration-sync/entrata/income-statement-actuals/sync-stream` | Stream live sync progress for Income Statement (SSE) |
+| `POST` | `/entrata/income-statement-actuals/stage` | `http://<host>:3002/integration-sync/entrata/income-statement-actuals/stage` | Stage Income Statement actuals from report logs |
+| `POST` | `/entrata/income-statement-actuals/transform` | `http://<host>:3002/integration-sync/entrata/income-statement-actuals/transform` | Transform staged Income Statement actuals |
+| `POST` | `/entrata/income-statement-actuals/project` | `http://<host>:3002/integration-sync/entrata/income-statement-actuals/project` | Project canonical Income Statement snapshots |
+
+#### Balance Sheet Actuals
+| Method | Path | Full URL | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/entrata/balance-sheet/sync` | `http://<host>:3002/integration-sync/entrata/balance-sheet/sync` | Enqueue Balance Sheet sync |
+| `POST` | `/entrata/balance-sheet/sync-stream` | `http://<host>:3002/integration-sync/entrata/balance-sheet/sync-stream` | Stream live sync progress for Balance Sheet (SSE) |
+| `POST` | `/entrata/balance-sheet/stage` | `http://<host>:3002/integration-sync/entrata/balance-sheet/stage` | Stage Balance Sheet actuals from report logs |
+| `POST` | `/entrata/balance-sheet/transform` | `http://<host>:3002/integration-sync/entrata/balance-sheet/transform` | Transform staged Balance Sheet actuals |
+| `POST` | `/entrata/balance-sheet/project` | `http://<host>:3002/integration-sync/entrata/balance-sheet/project` | Project canonical Balance Sheet snapshots |
+
+#### Budget Report (Full Financial Report)
+| Method | Path | Full URL | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/entrata/budget-report/sync` | `http://<host>:3002/integration-sync/entrata/budget-report/sync` | Enqueue Budget Report sync |
+| `POST` | `/entrata/budget-report/sync-stream` | `http://<host>:3002/integration-sync/entrata/budget-report/sync-stream` | Stream live sync progress for Budget Report (SSE) |
+| `POST` | `/entrata/budget-report/stage` | `http://<host>:3002/integration-sync/entrata/budget-report/stage` | Stage Budget Report from logs |
+| `POST` | `/entrata/budget-report/transform` | `http://<host>:3002/integration-sync/entrata/budget-report/transform` | Transform staged Budget Report into canonical records |
+| `POST` | `/entrata/budget-report/project` | `http://<host>:3002/integration-sync/entrata/budget-report/project` | Project canonical Budget Report snapshots |
+
+#### Property Closings (GL Lock & Accounting Months)
+| Method | Path | Full URL | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/entrata/property-closings` | `http://<host>:3002/integration-sync/entrata/property-closings` | Sync property closing statuses |
+| `POST` | `/entrata/report-data/property_closings` | `http://<host>:3002/integration-sync/entrata/report-data/property_closings` | Sync property closings via report endpoint |
+
+#### Budget Export to Entrata (Transmission)
+| Method | Path | Full URL | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/entrata/sync-budgets` | `http://<host>:3002/integration-sync/entrata/sync-budgets` | Smart Send or Update budget to Entrata (also `/sync-budget`, `/send-or-update-budgets`) |
+| `POST` | `/entrata/send-budgets` | `http://<host>:3002/integration-sync/entrata/send-budgets` | Send new budget into Entrata (`sendBudgets`) |
+| `POST` | `/entrata/update-budgets` | `http://<host>:3002/integration-sync/entrata/update-budgets` | Update existing budget in Entrata (`updateBudgets`) |
+
+---
+
+### 3. `rent-details-service` (Port 3003)
+
+Base URL: `http://<host>:3003/integration-sync`
+
+| Method | Path | Full URL | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/health` | `http://<host>:3003/integration-sync/health` | Health check ping |
+| `GET` | `/logs` | `http://<host>:3003/integration-sync/logs` | Query paginated integration logs |
+| `POST` | `/entrata/report-data/box_score` | `http://<host>:3003/integration-sync/entrata/report-data/box_score` | Enqueue Box Score report sync (`getReportData`) |
+| `POST` | `/entrata/report-data/resident_retention` | `http://<host>:3003/integration-sync/entrata/report-data/resident_retention` | Enqueue Resident Retention report sync (`getReportData`) |
+| `POST` | `/entrata/occupancy/project` | `http://<host>:3003/integration-sync/entrata/occupancy/project` | Project Box Score and Retention data into proforma occupancy tables |
+
+---
+
+## 9. Local Development Guide
 
 ### Step 1: Install Dependencies
 ```bash
@@ -276,7 +386,7 @@ npm run dev:build
 
 ---
 
-## 9. Production Deployment with PM2
+## 10. Production Deployment with PM2
 
 The file [`ecosystem.config.cjs`](./ecosystem.config.cjs) defines the 3 independent microservices with production environment flags (`NODE_ENV=production`, `NON_INTERACTIVE=true`).
 
@@ -321,7 +431,7 @@ pm2 monit
 
 ---
 
-## 10. Prisma & Database Management
+## 11. Prisma & Database Management
 
 ```bash
 # Reformat multi-file schemas under prisma/schema/*.prisma
@@ -342,7 +452,7 @@ npx prisma validate
 
 ---
 
-## 11. Common Troubleshooting
+## 12. Common Troubleshooting
 
 ### 1. `pg-boss` Schema or Queue Errors
 - **Issue**: Queue table creation fails or jobs are not picked up.

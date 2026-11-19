@@ -156,6 +156,22 @@ export async function syncEntrataPropertiesJob(input = {}) {
             requestId
         }
     });
+    const rawRequestPayload = {
+        auth: { type: "apikey" },
+        requestId,
+        method: {
+            name: "getProperties",
+            version: "r1",
+            params: {
+                ...(input.propertyId
+                    ? { propertyIds: input.propertyId }
+                    : input.propertyIds && input.propertyIds.length > 0
+                        ? { propertyIds: input.propertyIds.join(",") }
+                        : {}),
+                showAllStatus: "1"
+            }
+        }
+    };
     try {
         const response = await fetchEntrataProperties({
             apiKey,
@@ -179,12 +195,7 @@ export async function syncEntrataPropertiesJob(input = {}) {
                 sourceMethod: "getProperties",
                 requestId,
                 responseCode: 200,
-                rawRequest: {
-                    method: "getProperties",
-                    showAllStatus: true,
-                    ...(input.propertyId ? { propertyId: input.propertyId } : {}),
-                    ...(input.propertyIds ? { propertyIds: input.propertyIds } : {})
-                },
+                rawRequest: rawRequestPayload,
                 rawResponse: response,
                 status: "RECEIVED"
             }
@@ -447,11 +458,46 @@ export async function syncEntrataPropertiesJob(input = {}) {
         };
     }
     catch (error) {
+        let statusCode = 500;
+        let errorResponse = null;
+        let errorMessage = "Unknown error occurred while contacting Entrata";
+        if (error && typeof error === "object" && "isAxiosError" in error) {
+            const axiosErr = error;
+            statusCode = axiosErr.response?.status ?? 502;
+            errorResponse = axiosErr.response?.data ?? (axiosErr.response?.statusText ? { statusText: axiosErr.response.statusText } : null);
+            errorMessage = axiosErr.message;
+        }
+        else if (error instanceof Error) {
+            errorMessage = error.message;
+        }
+        try {
+            await prisma.stagingApiBatch.create({
+                data: {
+                    companyId: source.companyId,
+                    organisationId: source.organisationId,
+                    integrationSourceId: source.id,
+                    syncRunId: syncRun.id,
+                    entityName: "Property",
+                    sourceMethod: "getProperties",
+                    requestId,
+                    responseCode: statusCode,
+                    rawRequest: rawRequestPayload,
+                    rawResponse: (errorResponse ?? { error: errorMessage }),
+                    status: "FAILED",
+                    errorMessage
+                }
+            });
+        }
+        catch (batchErr) {
+            console.error("[sync-entrata-properties] Failed to record error batch in staging_api_batches:", batchErr);
+        }
         await prisma.integrationSyncRun.update({
             where: { id: syncRun.id },
             data: {
                 status: "FAILED",
-                errorMessage: error instanceof Error ? error.message : String(error),
+                responseCode: statusCode,
+                recordsFailed: 1,
+                errorMessage,
                 completedAt: new Date()
             }
         });
