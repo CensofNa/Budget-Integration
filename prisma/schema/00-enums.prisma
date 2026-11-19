@@ -225,3 +225,24 @@ enum ProformaT12Section {
   OPERATING_EXPENSES
   BELOW_THE_LINE
 }
+
+enum EmailMode {
+  NOT_CONFIGURED
+  PLATFORM
+  ORGANISATION_CUSTOM
+  DISABLED
+}
+
+enum EmailProvider {
+  M365
+  GMAIL
+}
+
+enum EmailDeliveryStatus {
+  PENDING
+  QUEUED
+  SENT
+  FAILED
+  SKIPPED
+}
+

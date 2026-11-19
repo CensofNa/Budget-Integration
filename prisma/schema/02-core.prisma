@@ -339,6 +339,10 @@ model Company {
   glAccounts              GlAccount[]
   stagingGlTrees          StagingGlTree[]
 
+  emailConfigurations     EmailConfiguration[]
+  emailTemplates          EmailTemplate[]
+  emailLogs               EmailLog[]
+
   @@index([onboardingStatus])
   @@index([accessStatus])
   @@index([isSystemInternal])
@@ -1289,6 +1293,10 @@ model Organisation {
   propertyGlTrees              PropertyGlTree[]
   stagingBudgetActuals         StagingBudgetActual[]
   integrationErrorLogs         IntegrationErrorLog[]
+
+  emailConfiguration           EmailConfiguration?
+  emailTemplates               EmailTemplate[]
+  emailLogs                    EmailLog[]
 
   @@unique([companyId, code])
   @@index([companyId, parentOrganisationId])

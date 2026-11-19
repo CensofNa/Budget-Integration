@@ -1,0 +1,121 @@
+// Email Sending, Templating, and Audit Models
+
+model EmailConfiguration {
+  id                   String        @id @default(uuid()) @db.Uuid
+  companyId            String?       @map("company_id") @db.Uuid
+  organisationId       String?       @unique @map("organisation_id") @db.Uuid
+  emailMode            EmailMode     @default(NOT_CONFIGURED) @map("email_mode")
+  provider             EmailProvider @default(M365)
+  displayName          String?       @map("display_name")
+  fromEmail            String?       @map("from_email")
+  description          String?
+  isActive             Boolean       @default(true) @map("is_active")
+
+  // AES-256-GCM Encrypted Credentials
+  encryptedCredentials String?       @map("encrypted_credentials") @db.Text
+  credentialIv         String?       @map("credential_iv") @db.VarChar(64)
+  credentialTag        String?       @map("credential_tag") @db.VarChar(64)
+
+  lastTestedAt         DateTime?     @map("last_tested_at")
+  lastTestStatus       String?       @map("last_test_status") @db.VarChar(50)
+
+  // Audit Fields
+  createdBy            String?       @map("created_by") @db.Uuid
+  updatedBy            String?       @map("updated_by") @db.Uuid
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  company              Company?      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation         Organisation? @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("email_configurations")
+}
+
+model EmailAction {
+  id                 String          @id @default(uuid()) @db.Uuid
+  code               String          @unique @map("code") @db.VarChar(100)
+  name               String          @db.VarChar(255)
+  description        String?
+  availableVariables Json            @map("available_variables")
+  isSystem           Boolean         @default(true) @map("is_system")
+
+  // Audit Fields
+  createdBy          String?         @map("created_by") @db.Uuid
+  updatedBy          String?         @map("updated_by") @db.Uuid
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+
+  templates          EmailTemplate[]
+  logs               EmailLog[]
+
+  @@map("email_actions")
+}
+
+model EmailTemplate {
+  id             String        @id @default(uuid()) @db.Uuid
+  actionId       String        @map("action_id") @db.Uuid
+  companyId      String?       @map("company_id") @db.Uuid
+  organisationId String?       @map("organisation_id") @db.Uuid
+  isOverridden   Boolean       @default(false) @map("is_overridden")
+  subject        String        @db.VarChar(500)
+  bodyHtml       String        @map("body_html") @db.Text
+  bodyText       String?       @map("body_text") @db.Text
+  recipientRules Json?         @map("recipient_rules")
+
+  // Audit Fields
+  createdBy      String?       @map("created_by") @db.Uuid
+  updatedBy      String?       @map("updated_by") @db.Uuid
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  action         EmailAction   @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  company        Company?      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organisation   Organisation? @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([actionId, organisationId])
+  @@index([companyId, organisationId])
+  @@map("email_templates")
+}
+
+model EmailLog {
+  id                String              @id @default(uuid()) @db.Uuid
+  companyId         String?             @map("company_id") @db.Uuid
+  organisationId    String?             @map("organisation_id") @db.Uuid
+  propertyId        String?             @map("property_id") @db.Uuid
+  actionCode        String              @map("action_code") @db.VarChar(100)
+
+  providerUsed      EmailProvider?      @map("provider_used")
+  fromEmail         String              @map("from_email")
+  toRecipients      Json                @map("to_recipients")
+  ccRecipients      Json?               @map("cc_recipients")
+  bccRecipients     Json?               @map("bcc_recipients")
+  subject           String              @db.VarChar(500)
+  renderedHtml      String?             @map("rendered_html") @db.Text
+
+  status            EmailDeliveryStatus @default(PENDING)
+  retryCount        Int                 @default(0) @map("retry_count")
+  errorMessage      String?             @map("error_message") @db.Text
+  messageId         String?             @map("message_id") @db.VarChar(255)
+  pgBossJobId       String?             @map("pg_boss_job_id") @db.VarChar(255)
+
+  triggeredByUserId String?             @map("triggered_by_user_id") @db.Uuid
+  resendByUserId    String?             @map("resend_by_user_id") @db.Uuid
+  resendAt          DateTime?           @map("resend_at")
+
+  relatedEntityType String?             @map("related_entity_type") @db.VarChar(100)
+  relatedEntityId   String?             @map("related_entity_id") @db.Uuid
+
+  sentAt            DateTime?           @map("sent_at")
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  action            EmailAction         @relation(fields: [actionCode], references: [code])
+  company           Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  organisation      Organisation?       @relation(fields: [organisationId], references: [id], onDelete: SetNull)
+  property          Property?           @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, organisationId, propertyId])
+  @@index([actionCode])
+  @@index([status])
+  @@map("email_logs")
+}
