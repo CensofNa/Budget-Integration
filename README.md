@@ -183,10 +183,6 @@ Create a `.env` file in the root directory based on `.env.example`:
 # PostgreSQL Database (used by Prisma and pg-boss)
 DATABASE_URL="postgresql://postgres:password@localhost:5432/century_budget?schema=public"
 
-# Entrata API Configuration
-ENTRATA_BASE_URL="https://apis.entrata.com"
-ENTRATA_API_KEY="your-entrata-api-key"
-
 # Domain Service Port Configurations
 PROPERTY_SERVICE_PORT=3001
 BUDGET_SERVICE_PORT=3002
@@ -205,7 +201,9 @@ ENABLE_EMBEDDED_WORKER=true
 SYNC_INCOME_STATEMENT_ACTUALS_CONCURRENCY=1
 ```
 
-> **Note**: A Redis server (`REDIS_HOST`, `REDIS_PORT`, etc.) is **not** used or needed.
+> **Note on Entrata Credentials**: Entrata API credentials (`apiKey`, `orgSlug`, `baseUrl`) are stored securely in the PostgreSQL database in the `public.integration_source_configs` table (`credentials_json` and `connection_json`), rather than in `.env`.
+>
+> **Note on Redis**: A Redis server (`REDIS_HOST`, `REDIS_PORT`, etc.) is **not** used or needed. All queues are handled by `pg-boss` inside PostgreSQL.
 
 ---
 
