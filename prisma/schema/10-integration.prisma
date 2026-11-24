@@ -2,7 +2,7 @@
 
 model IntegrationPlugin {
   id                 String              @id @map("plugin_id") @db.VarChar(100)
-  companyId          String              @map("company_id") @db.Uuid
+  companyId          String?             @map("company_id") @db.Uuid
   pluginName         String              @map("plugin_name") @db.VarChar(200)
   version            String              @db.VarChar(50)
   provider           String              @db.VarChar(200)
@@ -10,9 +10,11 @@ model IntegrationPlugin {
   sourceType         String              @map("source_type") @db.VarChar(100)
   manifestJson       Json?               @map("manifest_json")
   isActive           Boolean             @default(true) @map("is_active")
+  createdBy          String?             @map("created_by") @db.Uuid
+  updatedBy          String?             @map("updated_by") @db.Uuid
   installedAt        DateTime            @default(now()) @map("installed_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
-  company            Company             @relation(fields: [companyId], references: [id])
+  company            Company?            @relation(fields: [companyId], references: [id])
   integrationSources IntegrationSource[]
 
   @@index([companyId])
@@ -31,6 +33,8 @@ model IntegrationSource {
   sourceType           String                    @map("source_type") @db.VarChar(100)
   isPrimary            Boolean                   @default(false) @map("is_primary")
   isActive             Boolean                   @default(true) @map("is_active")
+  createdBy            String?                   @map("created_by") @db.Uuid
+  updatedBy            String?                   @map("updated_by") @db.Uuid
   createdAt            DateTime                  @default(now()) @map("created_at")
   updatedAt            DateTime                  @updatedAt @map("updated_at")
   config               IntegrationSourceConfig?
@@ -63,14 +67,20 @@ model IntegrationSource {
 model IntegrationSourceConfig {
   id                  String            @id @default(uuid()) @db.Uuid
   integrationSourceId String            @unique @map("integration_source_id") @db.Uuid
+  companyId           String?           @map("company_id") @db.Uuid
+  organisationId      String?           @map("organisation_id") @db.Uuid
   connectionJson      Json?             @map("connection_json")
   credentialsJson     Json?             @map("credentials_json")
   syncSettingsJson    Json?             @map("sync_settings_json")
   mappingProfileJson  Json?             @map("mapping_profile_json")
+  createdBy           String?           @map("created_by") @db.Uuid
+  updatedBy           String?           @map("updated_by") @db.Uuid
   createdAt           DateTime          @default(now()) @map("created_at")
   updatedAt           DateTime          @updatedAt @map("updated_at")
   integrationSource   IntegrationSource @relation(fields: [integrationSourceId], references: [id], onDelete: Cascade)
 
+  @@index([companyId])
+  @@index([organisationId])
   @@map("integration_source_configs")
 }
 
