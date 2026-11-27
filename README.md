@@ -229,10 +229,14 @@ Base URL: `http://<host>:3001/integration-sync`
 | :--- | :--- | :--- | :--- |
 | `GET` | `/health` | `http://<host>:3001/integration-sync/health` | Health check ping |
 | `GET` | `/logs` | `http://<host>:3001/integration-sync/logs` | Query paginated integration logs |
-| `POST` | `/entrata/properties` | `http://<host>:3001/integration-sync/entrata/properties` | Enqueue Entrata Properties sync (`getProperties`) |
-| `POST` | `/entrata/property-units` | `http://<host>:3001/integration-sync/entrata/property-units` | Enqueue Property Units sync (`getPropertyUnits`) |
-| `POST` | `/entrata/unit-types` | `http://<host>:3001/integration-sync/entrata/unit-types` | Enqueue Unit Types sync (`getUnitTypes`) |
-| `POST` | `/entrata/gl-trees` | `http://<host>:3001/integration-sync/entrata/gl-trees` | Enqueue Chart of Accounts / GL Trees sync (`getGlTrees`) |
+| `POST` | `/entrata/properties` | `http://<host>:3001/integration-sync/entrata/properties` | Enqueue Entrata Properties sync (`getProperties`, asynchronous) |
+| `POST` | `/entrata/properties/sync-direct` | `http://<host>:3001/integration-sync/entrata/properties/sync-direct` | **Synchronous Direct Sync** for Properties (immediate execution without queue) |
+| `POST` | `/entrata/property-units` | `http://<host>:3001/integration-sync/entrata/property-units` | Enqueue Property Units sync (`getPropertyUnits`, asynchronous) |
+| `POST` | `/entrata/property-units/sync-direct` | `http://<host>:3001/integration-sync/entrata/property-units/sync-direct` | **Synchronous Direct Sync** for Property Units (immediate execution without queue) |
+| `POST` | `/entrata/unit-types` | `http://<host>:3001/integration-sync/entrata/unit-types` | Enqueue Unit Types sync (`getUnitTypes`, asynchronous) |
+| `POST` | `/entrata/unit-types/sync-direct` | `http://<host>:3001/integration-sync/entrata/unit-types/sync-direct` | **Synchronous Direct Sync** for Unit Types (immediate execution without queue) |
+| `POST` | `/entrata/gl-trees` | `http://<host>:3001/integration-sync/entrata/gl-trees` | Enqueue Chart of Accounts / GL Trees sync (`getGlTrees`, asynchronous) |
+| `POST` | `/entrata/gl-trees/sync-direct` | `http://<host>:3001/integration-sync/entrata/gl-trees/sync-direct` | **Synchronous Direct Sync** for GL Trees (immediate execution without queue) |
 
 ---
 

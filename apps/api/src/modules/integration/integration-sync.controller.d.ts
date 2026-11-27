@@ -39,15 +39,55 @@ export declare class IntegrationSyncController {
         jobId: string | undefined;
         entityName: string;
     }>;
+    syncPropertiesDirect(body: SyncPropertiesRequestDto, queryAutoTransform?: string): Promise<{
+        success: boolean;
+        entityName: string;
+        syncRunId: string | undefined;
+        stagingBatchId: string | undefined;
+        recordsStaged: number;
+        transformed: boolean;
+        transformResult: {
+            transformed: number;
+            failed: number;
+        } | null;
+    }>;
     syncPropertyUnits(body: SyncPropertyUnitsRequestDto): Promise<{
         queued: boolean;
         jobId: string | undefined;
         entityName: string;
     }>;
+    syncPropertyUnitsDirect(body: SyncPropertyUnitsRequestDto, queryAutoTransform?: string): Promise<{
+        success: boolean;
+        entityName: string;
+        syncRunId: string | undefined;
+        recordsReceived: number;
+        recordsStaged: number;
+        recordsSkipped: number;
+        recordsPendingTransform: number;
+        transformed: boolean;
+        transformResult: {
+            transformed: number;
+            failed: number;
+        } | null;
+    }>;
     syncUnitTypes(body: SyncUnitTypesRequestDto): Promise<{
         queued: boolean;
         jobId: string | undefined;
         entityName: string;
+    }>;
+    syncUnitTypesDirect(body: SyncUnitTypesRequestDto, queryAutoTransform?: string): Promise<{
+        success: boolean;
+        entityName: string;
+        syncRunId: string | undefined;
+        recordsReceived: number;
+        recordsStaged: number;
+        recordsSkipped: number;
+        recordsPendingTransform: number;
+        transformed: boolean;
+        transformResult: {
+            transformed: number;
+            failed: number;
+        } | null;
     }>;
     syncBudgets(body: SyncBudgetRequestDto): Promise<{
         queued: boolean;
@@ -63,6 +103,21 @@ export declare class IntegrationSyncController {
         queued: boolean;
         jobId: string | undefined;
         entityName: string;
+    }>;
+    syncGlTreesDirect(body: SyncGlTreeRequestDto, queryAutoTransform?: string): Promise<{
+        success: boolean;
+        entityName: string;
+        syncRunId: string | undefined;
+        stagingBatchId: string | undefined;
+        recordsReceived: number;
+        recordsStaged: number;
+        recordsSkipped: number;
+        recordsPendingTransform: number;
+        transformed: boolean;
+        transformResult: {
+            transformed: number;
+            failed: number;
+        } | null;
     }>;
     syncIncomeStatementActuals(body: SyncIncomeStatementActualsRequestDto): Promise<QueueResponse>;
     stageIncomeStatementActuals(body: StageIncomeStatementActualsRequestDto): Promise<QueueResponse>;
