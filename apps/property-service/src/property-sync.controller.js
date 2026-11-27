@@ -10,11 +10,35 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-import { Body, Controller, Get, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, HttpException, HttpStatus, Post, Query } from "@nestjs/common";
 import { ApiOperation, ApiQuery, ApiTags } from "@nestjs/swagger";
 import { prisma } from "@budget-integration/database";
 import { syncPropertyQueue, syncPropertyUnitQueue, syncUnitTypeQueue, syncGlTreeQueue, createLogger, getPaginatedLogs } from "@budget-integration/integration-core";
+import { syncEntrataPropertiesJob } from "../../worker/src/jobs/sync-entrata-properties.job.js";
+import { transformStagedPropertiesJob } from "../../worker/src/jobs/transform-staged-properties.job.js";
+import { syncEntrataPropertyUnitsJob } from "../../worker/src/jobs/sync-entrata-property-units.job.js";
+import { transformStagedPropertyUnitsJob } from "../../worker/src/jobs/transform-staged-property-units.job.js";
+import { syncEntrataUnitTypesJob } from "../../worker/src/jobs/sync-entrata-unit-types.job.js";
+import { transformStagedUnitTypesJob } from "../../worker/src/jobs/transform-staged-unit-types.job.js";
+import { syncEntrataGlTreesJob } from "../../worker/src/jobs/sync-entrata-gl-trees.job.js";
+import { transformStagedGlTreesJob } from "../../worker/src/jobs/transform-staged-gl-trees.job.js";
 const logger = createLogger("property-service", prisma);
+function extractErrorInfo(error) {
+    let statusCode = 500;
+    let errorMessage = "Unknown error occurred during sync";
+    if (error && typeof error === "object" && "isAxiosError" in error) {
+        const axiosErr = error;
+        statusCode = axiosErr.response?.status ?? 502;
+        errorMessage =
+            axiosErr.response?.data?.response?.error?.message ??
+                axiosErr.response?.data?.message ??
+                axiosErr.message;
+    }
+    else if (error instanceof Error) {
+        errorMessage = error.message;
+    }
+    return { statusCode, errorMessage };
+}
 let PropertySyncController = class PropertySyncController {
     async getHealth() {
         await logger.info("Health check ping received", { action: "HEALTH_CHECK" });
@@ -105,6 +129,71 @@ let PropertySyncController = class PropertySyncController {
             throw error;
         }
     }
+    async syncPropertiesDirect(body, queryAutoTransform) {
+        const autoTransform = body.forceTransform ?? (queryAutoTransform !== "false");
+        await logger.info("Received request to synchronously sync properties", {
+            action: "SYNC_PROPERTIES_DIRECT_REQUEST",
+            entityName: "Property",
+            companyId: body.companyId,
+            organisationId: body.organisationId,
+            integrationSourceId: body.integrationSourceId,
+            contextJson: body
+        });
+        try {
+            const syncResult = await syncEntrataPropertiesJob({
+                ...(body.companyId ? { companyId: body.companyId } : {}),
+                ...(body.organisationId ? { organisationId: body.organisationId } : {}),
+                ...(body.integrationSourceId ? { integrationSourceId: body.integrationSourceId } : {}),
+                ...(body.propertyId ? { propertyId: body.propertyId } : {}),
+                ...(body.propertyIds ? { propertyIds: body.propertyIds } : {}),
+                ...(body.fiscalYears ? { fiscalYears: body.fiscalYears } : {}),
+                forceTransform: autoTransform
+            });
+            let transformResult = null;
+            if (syncResult && autoTransform && syncResult.recordsStaged > 0) {
+                transformResult = await transformStagedPropertiesJob({
+                    companyId: syncResult.companyId,
+                    organisationId: syncResult.organisationId,
+                    integrationSourceId: syncResult.integrationSourceId,
+                    syncRunId: syncResult.syncRunId
+                });
+            }
+            await logger.info("Synchronous property sync completed", {
+                action: "SYNC_PROPERTIES_DIRECT_SUCCESS",
+                entityName: "Property",
+                companyId: body.companyId,
+                organisationId: body.organisationId,
+                integrationSourceId: body.integrationSourceId,
+                contextJson: { syncResult, transformResult }
+            });
+            return {
+                success: true,
+                entityName: "Property",
+                syncRunId: syncResult?.syncRunId,
+                stagingBatchId: syncResult?.stagingBatchId,
+                recordsStaged: syncResult?.recordsStaged ?? 0,
+                transformed: autoTransform,
+                transformResult
+            };
+        }
+        catch (error) {
+            const { statusCode, errorMessage } = extractErrorInfo(error);
+            await logger.error("Synchronous property sync failed", error, {
+                action: "SYNC_PROPERTIES_DIRECT_FAILED",
+                entityName: "Property",
+                companyId: body.companyId,
+                organisationId: body.organisationId,
+                integrationSourceId: body.integrationSourceId,
+                contextJson: { statusCode, errorMessage }
+            });
+            throw new HttpException({
+                success: false,
+                entityName: "Property",
+                statusCode,
+                message: errorMessage
+            }, statusCode >= 400 && statusCode < 600 ? statusCode : HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
     async syncPropertyUnits(body) {
         await logger.info("Received request to sync property units", {
             action: "SYNC_PROPERTY_UNITS_REQUEST",
@@ -166,6 +255,72 @@ let PropertySyncController = class PropertySyncController {
                 contextJson: body
             });
             throw error;
+        }
+    }
+    async syncPropertyUnitsDirect(body, queryAutoTransform) {
+        const autoTransform = queryAutoTransform !== "false";
+        await logger.info("Received request to synchronously sync property units", {
+            action: "SYNC_PROPERTY_UNITS_DIRECT_REQUEST",
+            entityName: "PropertyUnit",
+            companyId: body.companyId,
+            organisationId: body.organisationId,
+            integrationSourceId: body.integrationSourceId,
+            contextJson: body
+        });
+        try {
+            const syncResult = await syncEntrataPropertyUnitsJob({
+                ...(body.companyId ? { companyId: body.companyId } : {}),
+                ...(body.organisationId ? { organisationId: body.organisationId } : {}),
+                ...(body.integrationSourceId ? { integrationSourceId: body.integrationSourceId } : {}),
+                ...(body.propertyId ? { propertyId: body.propertyId } : {}),
+                ...(body.propertyIds ? { propertyIds: body.propertyIds } : {}),
+                ...(body.propertyBatchSize !== undefined ? { propertyBatchSize: body.propertyBatchSize } : {})
+            });
+            let transformResult = null;
+            if (syncResult && autoTransform && syncResult.recordsPendingTransform > 0) {
+                transformResult = await transformStagedPropertyUnitsJob({
+                    companyId: syncResult.companyId,
+                    organisationId: syncResult.organisationId,
+                    integrationSourceId: syncResult.integrationSourceId,
+                    syncRunId: syncResult.syncRunId
+                });
+            }
+            await logger.info("Synchronous property units sync completed", {
+                action: "SYNC_PROPERTY_UNITS_DIRECT_SUCCESS",
+                entityName: "PropertyUnit",
+                companyId: body.companyId,
+                organisationId: body.organisationId,
+                integrationSourceId: body.integrationSourceId,
+                contextJson: { syncResult, transformResult }
+            });
+            return {
+                success: true,
+                entityName: "PropertyUnit",
+                syncRunId: syncResult?.syncRunId,
+                recordsReceived: syncResult?.recordsReceived ?? 0,
+                recordsStaged: syncResult?.recordsStaged ?? 0,
+                recordsSkipped: syncResult?.recordsSkipped ?? 0,
+                recordsPendingTransform: syncResult?.recordsPendingTransform ?? 0,
+                transformed: autoTransform,
+                transformResult
+            };
+        }
+        catch (error) {
+            const { statusCode, errorMessage } = extractErrorInfo(error);
+            await logger.error("Synchronous property units sync failed", error, {
+                action: "SYNC_PROPERTY_UNITS_DIRECT_FAILED",
+                entityName: "PropertyUnit",
+                companyId: body.companyId,
+                organisationId: body.organisationId,
+                integrationSourceId: body.integrationSourceId,
+                contextJson: { statusCode, errorMessage }
+            });
+            throw new HttpException({
+                success: false,
+                entityName: "PropertyUnit",
+                statusCode,
+                message: errorMessage
+            }, statusCode >= 400 && statusCode < 600 ? statusCode : HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
     async syncUnitTypes(body) {
@@ -231,6 +386,72 @@ let PropertySyncController = class PropertySyncController {
             throw error;
         }
     }
+    async syncUnitTypesDirect(body, queryAutoTransform) {
+        const autoTransform = queryAutoTransform !== "false";
+        await logger.info("Received request to synchronously sync unit types", {
+            action: "SYNC_UNIT_TYPES_DIRECT_REQUEST",
+            entityName: "UnitType",
+            companyId: body.companyId,
+            organisationId: body.organisationId,
+            integrationSourceId: body.integrationSourceId,
+            contextJson: body
+        });
+        try {
+            const syncResult = await syncEntrataUnitTypesJob({
+                companyId: body.companyId,
+                organisationId: body.organisationId,
+                integrationSourceId: body.integrationSourceId,
+                ...(body.propertyId ? { propertyId: body.propertyId } : {}),
+                ...(body.propertyIds && body.propertyIds.length > 0 ? { propertyIds: body.propertyIds } : {}),
+                ...(body.propertyBatchSize !== undefined ? { propertyBatchSize: body.propertyBatchSize } : {})
+            });
+            let transformResult = null;
+            if (syncResult && autoTransform && syncResult.recordsPendingTransform > 0) {
+                transformResult = await transformStagedUnitTypesJob({
+                    companyId: syncResult.companyId,
+                    organisationId: syncResult.organisationId,
+                    integrationSourceId: syncResult.integrationSourceId,
+                    syncRunId: syncResult.syncRunId
+                });
+            }
+            await logger.info("Synchronous unit types sync completed", {
+                action: "SYNC_UNIT_TYPES_DIRECT_SUCCESS",
+                entityName: "UnitType",
+                companyId: body.companyId,
+                organisationId: body.organisationId,
+                integrationSourceId: body.integrationSourceId,
+                contextJson: { syncResult, transformResult }
+            });
+            return {
+                success: true,
+                entityName: "UnitType",
+                syncRunId: syncResult?.syncRunId,
+                recordsReceived: syncResult?.recordsReceived ?? 0,
+                recordsStaged: syncResult?.recordsStaged ?? 0,
+                recordsSkipped: syncResult?.recordsSkipped ?? 0,
+                recordsPendingTransform: syncResult?.recordsPendingTransform ?? 0,
+                transformed: autoTransform,
+                transformResult
+            };
+        }
+        catch (error) {
+            const { statusCode, errorMessage } = extractErrorInfo(error);
+            await logger.error("Synchronous unit types sync failed", error, {
+                action: "SYNC_UNIT_TYPES_DIRECT_FAILED",
+                entityName: "UnitType",
+                companyId: body.companyId,
+                organisationId: body.organisationId,
+                integrationSourceId: body.integrationSourceId,
+                contextJson: { statusCode, errorMessage }
+            });
+            throw new HttpException({
+                success: false,
+                entityName: "UnitType",
+                statusCode,
+                message: errorMessage
+            }, statusCode >= 400 && statusCode < 600 ? statusCode : HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
     async syncGlTrees(body) {
         await logger.info("Received request to sync GL trees", {
             action: "SYNC_GL_TREES_REQUEST",
@@ -289,6 +510,71 @@ let PropertySyncController = class PropertySyncController {
             throw error;
         }
     }
+    async syncGlTreesDirect(body, queryAutoTransform) {
+        const autoTransform = queryAutoTransform !== "false";
+        await logger.info("Received request to synchronously sync GL trees", {
+            action: "SYNC_GL_TREES_DIRECT_REQUEST",
+            entityName: "GlTree",
+            companyId: body.companyId,
+            organisationId: body.organisationId,
+            integrationSourceId: body.integrationSourceId,
+            contextJson: body
+        });
+        try {
+            const syncResult = await syncEntrataGlTreesJob({
+                companyId: body.companyId,
+                organisationId: body.organisationId,
+                integrationSourceId: body.integrationSourceId,
+                entityName: "GlTree"
+            });
+            let transformResult = null;
+            if (syncResult && autoTransform && syncResult.recordsPendingTransform > 0) {
+                transformResult = await transformStagedGlTreesJob({
+                    companyId: syncResult.companyId,
+                    organisationId: syncResult.organisationId,
+                    integrationSourceId: syncResult.integrationSourceId,
+                    syncRunId: syncResult.syncRunId
+                });
+            }
+            await logger.info("Synchronous GL trees sync completed", {
+                action: "SYNC_GL_TREES_DIRECT_SUCCESS",
+                entityName: "GlTree",
+                companyId: body.companyId,
+                organisationId: body.organisationId,
+                integrationSourceId: body.integrationSourceId,
+                contextJson: { syncResult, transformResult }
+            });
+            return {
+                success: true,
+                entityName: "GlTree",
+                syncRunId: syncResult?.syncRunId,
+                stagingBatchId: syncResult?.stagingBatchId,
+                recordsReceived: syncResult?.recordsReceived ?? 0,
+                recordsStaged: syncResult?.recordsStaged ?? 0,
+                recordsSkipped: syncResult?.recordsSkipped ?? 0,
+                recordsPendingTransform: syncResult?.recordsPendingTransform ?? 0,
+                transformed: autoTransform,
+                transformResult
+            };
+        }
+        catch (error) {
+            const { statusCode, errorMessage } = extractErrorInfo(error);
+            await logger.error("Synchronous GL trees sync failed", error, {
+                action: "SYNC_GL_TREES_DIRECT_FAILED",
+                entityName: "GlTree",
+                companyId: body.companyId,
+                organisationId: body.organisationId,
+                integrationSourceId: body.integrationSourceId,
+                contextJson: { statusCode, errorMessage }
+            });
+            throw new HttpException({
+                success: false,
+                entityName: "GlTree",
+                statusCode,
+                message: errorMessage
+            }, statusCode >= 400 && statusCode < 600 ? statusCode : HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
 };
 __decorate([
     Get("health"),
@@ -335,6 +621,15 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], PropertySyncController.prototype, "syncProperties", null);
 __decorate([
+    Post(["entrata/properties/sync-direct", "entrata/properties/sync-now", "entrata/properties/sync-live"]),
+    ApiOperation({ summary: "Synchronously sync Entrata properties without queue" }),
+    __param(0, Body()),
+    __param(1, Query("autoTransform")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], PropertySyncController.prototype, "syncPropertiesDirect", null);
+__decorate([
     Post("entrata/property-units"),
     ApiOperation({ summary: "Enqueue Entrata property units sync" }),
     __param(0, Body()),
@@ -342,6 +637,15 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], PropertySyncController.prototype, "syncPropertyUnits", null);
+__decorate([
+    Post(["entrata/property-units/sync-direct", "entrata/property-units/sync-now", "entrata/property-units/sync-live"]),
+    ApiOperation({ summary: "Synchronously sync Entrata property units without queue" }),
+    __param(0, Body()),
+    __param(1, Query("autoTransform")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], PropertySyncController.prototype, "syncPropertyUnitsDirect", null);
 __decorate([
     Post("entrata/unit-types"),
     ApiOperation({ summary: "Enqueue Entrata unit types sync" }),
@@ -351,6 +655,15 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], PropertySyncController.prototype, "syncUnitTypes", null);
 __decorate([
+    Post(["entrata/unit-types/sync-direct", "entrata/unit-types/sync-now", "entrata/unit-types/sync-live"]),
+    ApiOperation({ summary: "Synchronously sync Entrata unit types without queue" }),
+    __param(0, Body()),
+    __param(1, Query("autoTransform")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], PropertySyncController.prototype, "syncUnitTypesDirect", null);
+__decorate([
     Post("entrata/gl-trees"),
     ApiOperation({ summary: "Enqueue Entrata GL trees sync" }),
     __param(0, Body()),
@@ -358,6 +671,15 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], PropertySyncController.prototype, "syncGlTrees", null);
+__decorate([
+    Post(["entrata/gl-trees/sync-direct", "entrata/gl-trees/sync-now", "entrata/gl-trees/sync-live"]),
+    ApiOperation({ summary: "Synchronously sync Entrata GL trees without queue" }),
+    __param(0, Body()),
+    __param(1, Query("autoTransform")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], PropertySyncController.prototype, "syncGlTreesDirect", null);
 PropertySyncController = __decorate([
     ApiTags("property-sync"),
     Controller("integration-sync")

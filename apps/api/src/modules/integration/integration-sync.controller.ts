@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Inject, Optional, Post, Query, Res, Param, Get } from "@nestjs/common";
+import { BadRequestException, Body, Controller, HttpException, HttpStatus, Inject, Optional, Post, Query, Res, Param, Get } from "@nestjs/common";
 import type { ServerResponse } from "node:http";
 import { ApiBody, ApiOperation } from "@nestjs/swagger";
 
@@ -59,6 +59,32 @@ import {
   type SendBudgetResponse
 } from "./dto/send-budget-request.dto.js";
 import { SendEntrataBudgetsService } from "./services/send-entrata-budgets.service.js";
+import { syncEntrataPropertiesJob } from "../../../../worker/src/jobs/sync-entrata-properties.job.js";
+import { transformStagedPropertiesJob } from "../../../../worker/src/jobs/transform-staged-properties.job.js";
+import { syncEntrataPropertyUnitsJob } from "../../../../worker/src/jobs/sync-entrata-property-units.job.js";
+import { transformStagedPropertyUnitsJob } from "../../../../worker/src/jobs/transform-staged-property-units.job.js";
+import { syncEntrataUnitTypesJob } from "../../../../worker/src/jobs/sync-entrata-unit-types.job.js";
+import { transformStagedUnitTypesJob } from "../../../../worker/src/jobs/transform-staged-unit-types.job.js";
+import { syncEntrataGlTreesJob } from "../../../../worker/src/jobs/sync-entrata-gl-trees.job.js";
+import { transformStagedGlTreesJob } from "../../../../worker/src/jobs/transform-staged-gl-trees.job.js";
+
+function extractErrorInfo(error: unknown) {
+  let statusCode = 500;
+  let errorMessage = "Unknown error occurred during sync";
+
+  if (error && typeof error === "object" && "isAxiosError" in error) {
+    const axiosErr = error as any;
+    statusCode = axiosErr.response?.status ?? 502;
+    errorMessage =
+      axiosErr.response?.data?.response?.error?.message ??
+      axiosErr.response?.data?.message ??
+      axiosErr.message;
+  } else if (error instanceof Error) {
+    errorMessage = error.message;
+  }
+
+  return { statusCode, errorMessage };
+}
 
 type QueueResponse = {
   queued: boolean;
@@ -171,6 +197,59 @@ export class IntegrationSyncController {
     };
   }
 
+  @Post(["entrata/properties/sync-direct", "entrata/properties/sync-now", "entrata/properties/sync-live"])
+  @ApiOperation({ summary: "Synchronously sync Entrata properties without queue" })
+  async syncPropertiesDirect(
+    @Body() body: SyncPropertiesRequestDto,
+    @Query("autoTransform") queryAutoTransform?: string
+  ) {
+    const autoTransform = body.forceTransform ?? (queryAutoTransform !== "false");
+
+    try {
+      const syncResult = await syncEntrataPropertiesJob({
+        companyId: body.companyId,
+        organisationId: body.organisationId,
+        integrationSourceId: body.integrationSourceId,
+        ...(body.propertyId ? { propertyId: body.propertyId } : {}),
+        ...(body.propertyIds && body.propertyIds.length > 0 ? { propertyIds: body.propertyIds } : {}),
+        ...(body.fiscalYears ? { fiscalYears: body.fiscalYears } : {}),
+        forceTransform: autoTransform
+      });
+
+      let transformResult = null;
+      if (syncResult && autoTransform && syncResult.recordsStaged > 0) {
+        transformResult = await transformStagedPropertiesJob({
+          companyId: syncResult.companyId,
+          organisationId: syncResult.organisationId,
+          integrationSourceId: syncResult.integrationSourceId,
+          syncRunId: syncResult.syncRunId
+        });
+      }
+
+      return {
+        success: true,
+        entityName: "Property",
+        syncRunId: syncResult?.syncRunId,
+        stagingBatchId: syncResult?.stagingBatchId,
+        recordsStaged: syncResult?.recordsStaged ?? 0,
+        transformed: autoTransform,
+        transformResult
+      };
+    } catch (error: unknown) {
+      const { statusCode, errorMessage } = extractErrorInfo(error);
+
+      throw new HttpException(
+        {
+          success: false,
+          entityName: "Property",
+          statusCode,
+          message: errorMessage
+        },
+        statusCode >= 400 && statusCode < 600 ? statusCode : HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
   @Post("entrata/property-units")
   async syncPropertyUnits(
     @Body() body: SyncPropertyUnitsRequestDto
@@ -208,6 +287,60 @@ export class IntegrationSyncController {
     };
   }
 
+  @Post(["entrata/property-units/sync-direct", "entrata/property-units/sync-now", "entrata/property-units/sync-live"])
+  @ApiOperation({ summary: "Synchronously sync Entrata property units without queue" })
+  async syncPropertyUnitsDirect(
+    @Body() body: SyncPropertyUnitsRequestDto,
+    @Query("autoTransform") queryAutoTransform?: string
+  ) {
+    const autoTransform = queryAutoTransform !== "false";
+
+    try {
+      const syncResult = await syncEntrataPropertyUnitsJob({
+        companyId: body.companyId,
+        organisationId: body.organisationId,
+        integrationSourceId: body.integrationSourceId,
+        ...(body.propertyId ? { propertyId: body.propertyId } : {}),
+        ...(body.propertyIds && body.propertyIds.length > 0 ? { propertyIds: body.propertyIds } : {}),
+        ...(body.propertyBatchSize !== undefined ? { propertyBatchSize: body.propertyBatchSize } : {})
+      });
+
+      let transformResult = null;
+      if (syncResult && autoTransform && syncResult.recordsPendingTransform > 0) {
+        transformResult = await transformStagedPropertyUnitsJob({
+          companyId: syncResult.companyId,
+          organisationId: syncResult.organisationId,
+          integrationSourceId: syncResult.integrationSourceId,
+          syncRunId: syncResult.syncRunId
+        });
+      }
+
+      return {
+        success: true,
+        entityName: "PropertyUnit",
+        syncRunId: syncResult?.syncRunId,
+        recordsReceived: syncResult?.recordsReceived ?? 0,
+        recordsStaged: syncResult?.recordsStaged ?? 0,
+        recordsSkipped: syncResult?.recordsSkipped ?? 0,
+        recordsPendingTransform: syncResult?.recordsPendingTransform ?? 0,
+        transformed: autoTransform,
+        transformResult
+      };
+    } catch (error: unknown) {
+      const { statusCode, errorMessage } = extractErrorInfo(error);
+
+      throw new HttpException(
+        {
+          success: false,
+          entityName: "PropertyUnit",
+          statusCode,
+          message: errorMessage
+        },
+        statusCode >= 400 && statusCode < 600 ? statusCode : HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
   @Post("entrata/unit-types")
   async syncUnitTypes(
     @Body() body: SyncUnitTypesRequestDto
@@ -243,6 +376,60 @@ export class IntegrationSyncController {
       jobId: job.id ? String(job.id) : undefined,
       entityName: "UnitType"
     };
+  }
+
+  @Post(["entrata/unit-types/sync-direct", "entrata/unit-types/sync-now", "entrata/unit-types/sync-live"])
+  @ApiOperation({ summary: "Synchronously sync Entrata unit types without queue" })
+  async syncUnitTypesDirect(
+    @Body() body: SyncUnitTypesRequestDto,
+    @Query("autoTransform") queryAutoTransform?: string
+  ) {
+    const autoTransform = queryAutoTransform !== "false";
+
+    try {
+      const syncResult = await syncEntrataUnitTypesJob({
+        companyId: body.companyId,
+        organisationId: body.organisationId,
+        integrationSourceId: body.integrationSourceId,
+        ...(body.propertyId ? { propertyId: body.propertyId } : {}),
+        ...(body.propertyIds && body.propertyIds.length > 0 ? { propertyIds: body.propertyIds } : {}),
+        ...(body.propertyBatchSize !== undefined ? { propertyBatchSize: body.propertyBatchSize } : {})
+      });
+
+      let transformResult = null;
+      if (syncResult && autoTransform && syncResult.recordsPendingTransform > 0) {
+        transformResult = await transformStagedUnitTypesJob({
+          companyId: syncResult.companyId,
+          organisationId: syncResult.organisationId,
+          integrationSourceId: syncResult.integrationSourceId,
+          syncRunId: syncResult.syncRunId
+        });
+      }
+
+      return {
+        success: true,
+        entityName: "UnitType",
+        syncRunId: syncResult?.syncRunId,
+        recordsReceived: syncResult?.recordsReceived ?? 0,
+        recordsStaged: syncResult?.recordsStaged ?? 0,
+        recordsSkipped: syncResult?.recordsSkipped ?? 0,
+        recordsPendingTransform: syncResult?.recordsPendingTransform ?? 0,
+        transformed: autoTransform,
+        transformResult
+      };
+    } catch (error: unknown) {
+      const { statusCode, errorMessage } = extractErrorInfo(error);
+
+      throw new HttpException(
+        {
+          success: false,
+          entityName: "UnitType",
+          statusCode,
+          message: errorMessage
+        },
+        statusCode >= 400 && statusCode < 600 ? statusCode : HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
   }
 
   @Post("entrata/budgets")
@@ -353,6 +540,59 @@ export class IntegrationSyncController {
       jobId: job.id ? String(job.id) : undefined,
       entityName: "GlTree"
     };
+  }
+
+  @Post(["entrata/gl-trees/sync-direct", "entrata/gl-trees/sync-now", "entrata/gl-trees/sync-live"])
+  @ApiOperation({ summary: "Synchronously sync Entrata GL trees without queue" })
+  async syncGlTreesDirect(
+    @Body() body: SyncGlTreeRequestDto,
+    @Query("autoTransform") queryAutoTransform?: string
+  ) {
+    const autoTransform = queryAutoTransform !== "false";
+
+    try {
+      const syncResult = await syncEntrataGlTreesJob({
+        companyId: body.companyId,
+        organisationId: body.organisationId,
+        integrationSourceId: body.integrationSourceId,
+        entityName: "GlTree"
+      });
+
+      let transformResult = null;
+      if (syncResult && autoTransform && syncResult.recordsPendingTransform > 0) {
+        transformResult = await transformStagedGlTreesJob({
+          companyId: syncResult.companyId,
+          organisationId: syncResult.organisationId,
+          integrationSourceId: syncResult.integrationSourceId,
+          syncRunId: syncResult.syncRunId
+        });
+      }
+
+      return {
+        success: true,
+        entityName: "GlTree",
+        syncRunId: syncResult?.syncRunId,
+        stagingBatchId: syncResult?.stagingBatchId,
+        recordsReceived: syncResult?.recordsReceived ?? 0,
+        recordsStaged: syncResult?.recordsStaged ?? 0,
+        recordsSkipped: syncResult?.recordsSkipped ?? 0,
+        recordsPendingTransform: syncResult?.recordsPendingTransform ?? 0,
+        transformed: autoTransform,
+        transformResult
+      };
+    } catch (error: unknown) {
+      const { statusCode, errorMessage } = extractErrorInfo(error);
+
+      throw new HttpException(
+        {
+          success: false,
+          entityName: "GlTree",
+          statusCode,
+          message: errorMessage
+        },
+        statusCode >= 400 && statusCode < 600 ? statusCode : HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
   }
 
   @Post("entrata/income-statement-actuals/sync")
