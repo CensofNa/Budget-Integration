@@ -226,6 +226,26 @@ enum ProformaT12Section {
   BELOW_THE_LINE
 }
 
+enum CalcFormulaStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
+enum CalcFormulaRecalcStatus {
+  QUEUED
+  RUNNING
+  DONE
+  CANCELLED
+}
+
+enum CalcFormulaRecalcItemStatus {
+  PENDING
+  DONE
+  SKIPPED
+  FAILED
+}
+
 enum EmailMode {
   NOT_CONFIGURED
   PLATFORM
@@ -245,4 +265,3 @@ enum EmailDeliveryStatus {
   FAILED
   SKIPPED
 }
-

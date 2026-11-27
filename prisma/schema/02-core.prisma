@@ -339,9 +339,9 @@ model Company {
   glAccounts              GlAccount[]
   stagingGlTrees          StagingGlTree[]
 
-  emailConfigurations     EmailConfiguration[]
-  emailTemplates          EmailTemplate[]
-  emailLogs               EmailLog[]
+  emailConfigurations EmailConfiguration[]
+  emailTemplates      EmailTemplate[]
+  emailLogs           EmailLog[]
 
   @@index([onboardingStatus])
   @@index([accessStatus])
@@ -1294,9 +1294,9 @@ model Organisation {
   stagingBudgetActuals         StagingBudgetActual[]
   integrationErrorLogs         IntegrationErrorLog[]
 
-  emailConfiguration           EmailConfiguration?
-  emailTemplates               EmailTemplate[]
-  emailLogs                    EmailLog[]
+  emailConfiguration EmailConfiguration?
+  emailTemplates     EmailTemplate[]
+  emailLogs          EmailLog[]
 
   @@unique([companyId, code])
   @@index([companyId, parentOrganisationId])
@@ -2384,4 +2384,92 @@ model BudgetProfitLossAdjustment {
   @@unique([snapshotId, accountCode], map: "uq_bpla_snapshot_accountcode")
   @@index([snapshotId, accountCode], map: "idx_bpla_snapshot_accountcode")
   @@map("profit_loss_adjustments")
+}
+
+/// Centralised, versioned calculation formulas (pilot: Other Income).
+/// Evaluated by src/modules/calc-formulas/expression; edited from the Formulas Report page.
+/// One PUBLISHED row per (module, account, target, effectiveFromFY, scope) — enforced by a
+/// partial unique index added in the migration SQL (not expressible in Prisma).
+model CalcFormula {
+  id                 String            @id @default(uuid()) @db.Uuid
+  module             String            @db.VarChar(50)
+  accountCode        String            @map("account_code") @db.VarChar(100)
+  /// 'ACCOUNT' or a detail line name
+  targetKey          String            @map("target_key") @db.VarChar(500)
+  expression         String            @db.VarChar(1000)
+  fallbackExpression String?           @map("fallback_expression") @db.VarChar(1000)
+  astJson            Json              @map("ast_json")
+  fallbackAstJson    Json?             @map("fallback_ast_json")
+  totalMode          String            @default("SUM") @map("total_mode") @db.VarChar(10)
+  excludeRows        String[]          @default([]) @map("exclude_rows")
+  hooks              String[]          @default([])
+  dependsOn          String[]          @default([]) @map("depends_on")
+  version            Int
+  status             CalcFormulaStatus @default(DRAFT)
+  effectiveFromFY    Int               @map("effective_from_fy")
+  description        String?           @db.VarChar(500)
+  /// Reserved for per-company / per-template overrides (unused in v1: always null)
+  companyId          String?           @map("company_id") @db.Uuid
+  coaTemplateId      String?           @map("coa_template_id") @db.Uuid
+  /// null = system seed
+  createdBy          String?           @map("created_by") @db.Uuid
+  publishedBy        String?           @map("published_by") @db.Uuid
+  publishedAt        DateTime?         @map("published_at")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @default(now()) @updatedAt @map("updated_at")
+
+  @@index([module, status, effectiveFromFY])
+  @@index([module, accountCode])
+  @@map("calc_formula")
+}
+
+/// One "apply formulas to already-saved budgets" job (publish with RECALC_EXISTING, or started by hand).
+/// Processed by formula-recalc.worker.ts; durable, so it resumes after a restart.
+model CalcFormulaRecalcRun {
+  id           String                  @id @default(uuid()) @db.Uuid
+  module       String                  @db.VarChar(50)
+  /// PUBLISH | MANUAL
+  trigger      String                  @db.VarChar(20)
+  /// Accounts whose formulas prompted the run (informational; the module is recomputed as a whole)
+  accountCodes String[]                @default([]) @map("account_codes")
+  /// calc_formula ids published with this run (empty for MANUAL)
+  formulaIds   String[]                @default([]) @map("formula_ids") @db.Uuid
+  /// { fiscalYearFrom, fiscalYearTo, includeActiveBudgets, companyIds?, propertyIds? }
+  scope        Json
+  status       CalcFormulaRecalcStatus @default(QUEUED)
+  total        Int                     @default(0)
+  succeeded    Int                     @default(0)
+  skipped      Int                     @default(0)
+  failed       Int                     @default(0)
+  createdBy    String                  @map("created_by") @db.Uuid
+  cancelledBy  String?                 @map("cancelled_by") @db.Uuid
+  createdAt    DateTime                @default(now()) @map("created_at")
+  startedAt    DateTime?               @map("started_at")
+  heartbeatAt  DateTime?               @map("heartbeat_at")
+  finishedAt   DateTime?               @map("finished_at")
+  items        CalcFormulaRecalcItem[]
+
+  @@index([status, createdAt])
+  @@index([module, createdAt])
+  @@map("calc_formula_recalc_run")
+}
+
+model CalcFormulaRecalcItem {
+  id              String                      @id @default(uuid()) @db.Uuid
+  runId           String                      @map("run_id") @db.Uuid
+  companyId       String                      @map("company_id") @db.Uuid
+  organisationId  String                      @map("organisation_id") @db.Uuid
+  propertyId      String                      @map("property_id") @db.Uuid
+  fiscalYear      Int                         @map("fiscal_year")
+  status          CalcFormulaRecalcItemStatus @default(PENDING)
+  /// Formula accounts rewritten (0 = stored values already matched)
+  changedAccounts Int?                        @map("changed_accounts")
+  /// Skip reason code or error message
+  reason          String?                     @db.VarChar(1000)
+  processedAt     DateTime?                   @map("processed_at")
+  run             CalcFormulaRecalcRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, propertyId, fiscalYear])
+  @@index([runId, status])
+  @@map("calc_formula_recalc_item")
 }
